@@ -3873,6 +3873,14 @@ public class MemoryMessagesStore implements IMessagesStore {
     }
 
     @Override
+    public boolean deleteMessage(long messageId) {
+        HazelcastInstance hzInstance = m_Server.getHazelcastInstance();
+        IMap<Long, MessageBundle> mIMap = hzInstance.getMap(MESSAGES_MAP);
+        MessageBundle bundle = mIMap.remove(messageId);
+        return bundle != null;
+    }
+
+    @Override
     public boolean isAllowClientCustomGroupNotification() {
         return mGroupAllowClientCustomOperationNotification;
     }

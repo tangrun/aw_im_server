@@ -21,6 +21,7 @@ import java.util.List;
 
 import com.hazelcast.util.StringUtil;
 import com.mchange.v2.c3p0.ComboPooledDataSource;
+import com.xiaoleilu.hutool.util.StrUtil;
 import io.moquette.BrokerConstants;
 import io.moquette.server.config.IConfig;
 import org.flywaydb.core.Flyway;
@@ -47,10 +48,25 @@ public class DBUtil {
     public static boolean IsEmbedDB = false;
     public static boolean SystemExiting = false;
     public static boolean ClearDBDebugMode = false;
+    private static int clearHisMsgYear, clearHisMsgMonth, clearHisMsgDay;
 
     public static void init(IConfig config) {
         String embedDB = config.getProperty(BrokerConstants.EMBED_DB_PROPERTY_NAME);
         boolean autoCleanMsgs = "true".equals(config.getProperty(BrokerConstants.DB_AUTO_CLEAN_HISTORY_MESSAGES));
+        if (autoCleanMsgs){
+                String year = config.getProperty(BrokerConstants.DB_AUTO_CLEAN_HISTORY_MESSAGES_YEAR);
+                String month = config.getProperty(BrokerConstants.DB_AUTO_CLEAN_HISTORY_MESSAGES_MONTH);
+                String day = config.getProperty(BrokerConstants.DB_AUTO_CLEAN_HISTORY_MESSAGES_DAY);
+                clearHisMsgYear = StrUtil.isBlank(year) ? 0 : Integer.parseInt(year);
+                clearHisMsgMonth = StrUtil.isBlank(month) ? 0 : Integer.parseInt(month);
+                clearHisMsgDay = StrUtil.isBlank(day) ? 0 : Integer.parseInt(day);
+                if (clearHisMsgYear > 0)
+                    clearHisMsgYear = -clearHisMsgYear;
+                if (clearHisMsgMonth > 0)
+                    clearHisMsgMonth = -clearHisMsgMonth;
+                if (clearHisMsgDay > 0)
+                    clearHisMsgDay = -clearHisMsgDay;
+        }
         if (embedDB != null && embedDB.equals("1")) {
             IsEmbedDB = true;
             LOG.info("Use h2 database");
@@ -181,8 +197,9 @@ public class DBUtil {
     private static long getMaxMidNeedClean() {
         Calendar cal = Calendar.getInstance();
         cal.setTime(new Date());
-        cal.add(Calendar.YEAR, -3);
-        cal.add(Calendar.DATE, 1);
+        cal.add(Calendar.YEAR, clearHisMsgYear);
+        cal.add(Calendar.MONTH, clearHisMsgMonth);
+        cal.add(Calendar.DATE, clearHisMsgDay);
         return MessageShardingUtil.getMsgIdFromTimestamp(cal.getTimeInMillis());
     }
 

@@ -223,6 +223,7 @@ public interface IMessagesStore {
     List<String> getAllSensitiveWords();
 
     WFCMessage.Message getMessage(long messageId);
+    boolean deleteMessage(long messageId);
 
     boolean isAllowClientCustomGroupNotification();
     boolean isAllowRobotCustomGroupNotification();
