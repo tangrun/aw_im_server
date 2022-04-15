@@ -99,6 +99,7 @@ public final class MqttConnectVariableHeader {
             .append(", hasUserName=").append(hasUserName)
             .append(", hasPassword=").append(hasPassword)
             .append(", isWillRetain=").append(isWillRetain)
+            .append(", willQos=").append(willQos)
             .append(", isWillFlag=").append(isWillFlag)
             .append(", isCleanSession=").append(isCleanSession)
             .append(", keepAliveTimeSeconds=").append(keepAliveTimeSeconds)

@@ -41,6 +41,28 @@
             </DefaultRolloverStrategy>
         </RollingRandomAccessFile>
 
+        <RollingRandomAccessFile name="RollingFileDebug" immediateFlush="false"
+                                 fileName="${MSG_LOG_HOME}/wildfirechat_debug.log"
+                                 filePattern="${MSG_LOG_HOME}/backup/wildfirechat_debug.%d{yyyyMMddHH}.zip">
+            <Filters>
+                <ThresholdFilter level="DEBUG" onMatch="ACCEPT" onMismatch="DENY"/>
+            </Filters>
+            <PatternLayout pattern="${pattern}" />
+            <Policies>
+                <!-- TimeBasedTriggeringPolicy :时间滚动策略,默认0点小时产生新的文件,interval="6" : 自定义文件滚动时间间隔,每隔6小时产生新文件, modulate="true" : 产生文件是否以0点偏移时间,即6点,12点,18点,0点-->
+                <!--                <TimeBasedTriggeringPolicy interval="6" modulate="true"/>-->
+                <!-- SizeBasedTriggeringPolicy :文件大小滚动策略-->
+                <SizeBasedTriggeringPolicy size="100 MB"/>
+            </Policies>
+
+            <DefaultRolloverStrategy max="24">
+                <Delete basePath="${MSG_LOG_HOME}" maxDepth="2">
+                    <IfFileName glob="*/wildfirechat_debug.*.zip" />
+                    <IfLastModified age="24H" />
+                </Delete>
+            </DefaultRolloverStrategy>
+        </RollingRandomAccessFile>
+
         <RollingRandomAccessFile name="RollingFileWarn" immediateFlush="true"
                                  fileName="${MSG_LOG_HOME}/wildfirechat_warn.log"
                                  filePattern="${MSG_LOG_HOME}/backup/wildfirechat_warn.%d{yyyyMMddHH}.zip">
@@ -93,9 +115,11 @@
         <!--        <logger name="org.springframework" level="INFO"></logger>-->
         <!--        <logger name="org.mybatis" level="INFO"></logger>-->
         <!-- Root节点用来指定项目的根日志，如果没有单独指定Logger，那么就会默认使用该Root日志输出 -->
-        <root level="INFO">
+        <logger name="messageLogger" level="debug"/>
+        <root level="info">
             <appender-ref ref="Console"/>
             <appender-ref ref="RollingFileInfo"/>
+            <appender-ref ref="RollingFileDebug"/>
             <appender-ref ref="RollingFileWarn"/>
             <appender-ref ref="RollingFileError"/>
         </root>

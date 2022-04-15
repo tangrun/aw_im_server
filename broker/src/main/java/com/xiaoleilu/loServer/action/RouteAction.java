@@ -109,7 +109,7 @@ public class RouteAction extends Action {
                 WFCMessage.IMHttpWrapper wrapper = WFCMessage.IMHttpWrapper.parseFrom(bytes);
                 String token = wrapper.getToken();
                 String userId = Tokenor.getUserId(token.getBytes());
-                LOG.info("RouteAction token={}, userId={}", token, userId);
+                LOG.info("RouteAction token={}, userId={}, request={}", token, userId,wrapper.getRequest());
                 if (userId == null) {
                     sendResponse(response, ErrorCode.ERROR_CODE_TOKEN_ERROR, null, base64Response);
                 } else {
