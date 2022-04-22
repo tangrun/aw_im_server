@@ -23,12 +23,14 @@ public class MediaServerConfig {
     public static String QINIU_BUCKET_PORTRAIT_DOMAIN;
     public static String QINIU_BUCKET_FAVORITE_NAME;
     public static String QINIU_BUCKET_FAVORITE_DOMAIN;
-    
-    public static String SERVER_IP = "localhost";
-    public static int HTTP_SERVER_PORT = 8080;
-    public static String FILE_STROAGE_ROOT = "fs";
-    public static String FILE_STROAGE_REMOTE_SERVER_URL;
+
     public static boolean USER_QINIU = false;
 
+    public static String FileServerTokenKey;
+    public static String FileServerLocalDir;
+    public static int FileServerLocalPort;
+    public static String FileServerUploadUrl;
+    public static int FileServerUploadPort;
+    public static String FileServerDownloadUrl;
 
 }

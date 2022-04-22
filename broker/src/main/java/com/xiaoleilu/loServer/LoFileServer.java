@@ -1,14 +1,7 @@
 package com.xiaoleilu.loServer;
 
-import com.xiaoleilu.hutool.log.Log;
-import com.xiaoleilu.hutool.log.StaticLog;
 import com.xiaoleilu.hutool.util.DateUtil;
-import com.xiaoleilu.loServer.action.Action;
-import com.xiaoleilu.loServer.action.ClassUtil;
-import com.xiaoleilu.loServer.annotation.Route;
-import com.xiaoleilu.loServer.handler.ActionHandler;
 import com.xiaoleilu.loServer.handler.HttpFileServerHandler;
-import io.moquette.spi.IMessagesStore;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
@@ -20,12 +13,8 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.HttpRequestDecoder;
 import io.netty.handler.codec.http.HttpResponseEncoder;
-import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.stream.ChunkedWriteHandler;
-import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.io.IOException;
 
 /**
  * LoServer starter<br>
@@ -38,21 +27,19 @@ import java.io.IOException;
 public class LoFileServer {
     private static final org.slf4j.Logger Logger = LoggerFactory.getLogger(LoFileServer.class);
 	private int port;
-    private IMessagesStore messagesStore;
     private Channel channel;
 
-    public LoFileServer(int port, IMessagesStore messagesStore) {
+    public LoFileServer(int port ) {
         this.port = port;
-        this.messagesStore = messagesStore;
     }
 
     /**
 	 * 启动服务
-	 * @throws InterruptedException 
+	 * @throws InterruptedException
 	 */
 	public void start() throws InterruptedException {
 		long start = System.currentTimeMillis();
-		
+
 		// Configure the server.
 		final EventLoopGroup bossGroup = new NioEventLoopGroup(1);
 		final EventLoopGroup workerGroup = new NioEventLoopGroup();
@@ -77,7 +64,7 @@ public class LoFileServer {
                         socketChannel.pipeline().addLast(new HttpFileServerHandler());
                     }
                 });
-			
+
 			channel = b.bind(port).sync().channel();
 			Logger.info("***** Welcome To LoServer on port [{}], startting spend {}ms *****", port, DateUtil.spendMs(start));
         } catch (Exception e) {

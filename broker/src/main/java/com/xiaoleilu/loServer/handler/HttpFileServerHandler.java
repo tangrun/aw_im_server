@@ -1,420 +1,480 @@
 package com.xiaoleilu.loServer.handler;
 
-import io.netty.util.internal.StringUtil;
+import com.hazelcast.util.StringUtil;
+import com.xiaoleilu.hutool.util.*;
+import com.xiaoleilu.loServer.ServerSetting;
+import com.xiaoleilu.loServer.action.UploadFileAction;
 import io.moquette.server.config.MediaServerConfig;
 import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelFutureListener;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.buffer.Unpooled;
+import io.netty.channel.*;
 import io.netty.handler.codec.http.*;
+import io.netty.handler.codec.http.cookie.ServerCookieDecoder;
+import io.netty.handler.codec.http.cookie.ServerCookieEncoder;
 import io.netty.handler.codec.http.multipart.*;
+import io.netty.handler.ssl.SslHandler;
+import io.netty.handler.stream.ChunkedFile;
+import io.netty.util.CharsetUtil;
+import okhttp3.MediaType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.RandomAccessFile;
-import java.util.UUID;
+import javax.activation.MimetypesFileTypeMap;
+import java.io.*;
+import java.net.InetSocketAddress;
+import java.net.URLDecoder;
+import java.text.SimpleDateFormat;
+import java.util.*;
+import java.util.regex.Pattern;
 
 import static com.xiaoleilu.loServer.handler.HttpResponseHelper.getFileExt;
-import static io.netty.handler.codec.http.HttpHeaders.Names.*;
-import static io.netty.handler.codec.http.HttpHeaders.Names.ACCESS_CONTROL_ALLOW_HEADERS;
+import static io.netty.buffer.Unpooled.copiedBuffer;
+import static io.netty.handler.codec.http.HttpResponseStatus.*;
+import static io.netty.handler.codec.http.HttpVersion.HTTP_1_0;
 import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
 
-public class HttpFileServerHandler extends ChannelInboundHandlerAdapter {
-
+public class HttpFileServerHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
     private static final Logger logger = LoggerFactory.getLogger(HttpFileServerHandler.class);
-    private static final HttpDataFactory factory = new DefaultHttpDataFactory(false);
+
+    String HTTP_DATE_GMT_TIMEZONE = "GMT";
+    int HTTP_CACHE_SECONDS = 60;
+
+    //    MimetypesFileTypeMap mimeTypesMap  = new MimetypesFileTypeMap();
+    Pattern INSECURE_URI = Pattern.compile(".*[<>&\"].*");
+    SimpleDateFormat dateFormatter = new SimpleDateFormat(DateUtil.HTTP_DATETIME_PATTERN, Locale.US);
+
+    {
+        dateFormatter.setTimeZone(TimeZone.getTimeZone(HTTP_DATE_GMT_TIMEZONE));
+    }
+
+    private static final HttpDataFactory factory =
+        new DefaultHttpDataFactory(DefaultHttpDataFactory.MINSIZE); // Disk if size exceed
+
+
+    private HttpPostRequestDecoder decoder;
+
+    private FullHttpRequest request;
 
     @Override
-    public void channelRead(ChannelHandlerContext ctx, Object msg) {
-        try {
-            if (msg instanceof FullHttpRequest) {
-                FullHttpRequest request = (FullHttpRequest) msg;
-                String requestId = UUID.randomUUID().toString().replace("-", "");
-                logger.info("HttpFileServerHandler received a request: method=" + request.getMethod() + ", uri=" + request.getUri() + ", requestId=" + requestId);
-
-                if (!request.getDecoderResult().isSuccess()) {
-                    logger.warn("http decode failed!");
-                    HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.BAD_REQUEST);
-                    return;
-                }
-
-                if (request.getMethod() == HttpMethod.GET) {
-                    download(ctx, request, requestId);
-                } else if (request.getMethod() == HttpMethod.POST) {
-                    multipartUpload(ctx, request, requestId);
-                } else if (request.getMethod() == HttpMethod.DELETE) {
-                    delete(ctx, request, requestId);
-                } else if (request.getMethod() == HttpMethod.OPTIONS) {
-                    doOptions(ctx, request);
-                } else {
-                    logger.warn("METHOD_NOT_ALLOWED!(methodName=" + request.getMethod().name() + ")");
-                    HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.METHOD_NOT_ALLOWED);
-                }
-            } else {
-                HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.BAD_REQUEST, "Not a http request");
-            }
-        } catch (Exception e) {
-            logger.error("HttpFileServerHandler.channelRead0() process error!", e);
-            HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR);
+    protected void channelRead0(ChannelHandlerContext ctx, FullHttpRequest request) throws Exception {
+        this.request = request;
+        if (!request.decoderResult().isSuccess()) {
+            sendError(ctx, request, BAD_REQUEST);
+            return;
         }
+        if (request.method() == HttpMethod.GET) {
+            downloadFile(ctx, request);
+        } else if (request.method() == HttpMethod.POST) {
+            uploadFile(ctx, request);
+            if (decoder != null) {
+                decoder.destroy();
+                decoder = null;
+            }
+        } else {
+            sendError(ctx, request, METHOD_NOT_ALLOWED);
+        }
+        this.request = null;
     }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        try {
-            if (ctx.channel().isActive()) {
-                HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR);
-                logger.warn("exceptionCaught:" + cause.getMessage());
-            }
-        } catch (Exception e) {
-            logger.warn("exceptionCaught error!" + e.getMessage());
+        cause.printStackTrace();
+        if (ctx.channel().isActive()) {
+            sendError(ctx, request, INTERNAL_SERVER_ERROR);
         }
     }
 
+    @Override
+    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+        if (decoder != null) {
+            decoder.cleanFiles();
+        }
+    }
 
-    /**
-     * multipart上传
-     */
-    private void multipartUpload(ChannelHandlerContext ctx, FullHttpRequest request, String requestId) {
-        HttpPostRequestDecoder decoder = null;
-        try {
-            decoder = new HttpPostRequestDecoder(factory, request);
-        } catch (HttpPostRequestDecoder.ErrorDataDecoderException e1) {
-            logger.error("Failed to decode file data!", e1);
-            HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.BAD_REQUEST, "Failed to decode file data!");
+    private void downloadFile(ChannelHandlerContext ctx, FullHttpRequest request) throws IOException {
+
+        if (!ServerSetting.isRootAvailable()) {
+            sendError(ctx, request, SERVICE_UNAVAILABLE);
             return;
         }
 
+        final boolean keepAlive = HttpUtil.isKeepAlive(request);
+        final String uri = request.uri();
 
-        if (decoder != null) {
-            if (request instanceof HttpContent) {
-                HttpContent chunk = (HttpContent) request;
-                try {
-                    decoder.offer(chunk);
-                } catch (HttpPostRequestDecoder.ErrorDataDecoderException e1) {
-                    logger.warn("BAD_REQUEST, Failed to decode file data");
-                    HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.BAD_REQUEST, "Failed to decode file data");
+        File file = getFileByPath(uri);
+        if (file.isHidden() || !file.exists()) {
+            sendError(ctx, request, HttpResponseStatus.NOT_FOUND);
+            return;
+        }
+
+        if (file.isDirectory()) {
+            sendError(ctx, request, FORBIDDEN);
+            return;
+        }
+
+        // Cache Validation
+        String ifModifiedSince = request.headers().get(HttpHeaderNames.IF_MODIFIED_SINCE);
+        if (ifModifiedSince != null && !ifModifiedSince.isEmpty()) {
+            Date ifModifiedSinceDate = null;
+            try {
+                ifModifiedSinceDate = DateUtil.parse(ifModifiedSince, dateFormatter);
+            } catch (Exception e) {
+                logger.warn("If-Modified-Since header parse error: {}", e.getMessage());
+            }
+            if (ifModifiedSinceDate != null) {
+                // 只对比到秒一级别
+                long ifModifiedSinceDateSeconds = ifModifiedSinceDate.getTime() / 1000;
+                long fileLastModifiedSeconds = file.lastModified() / 1000;
+                if (ifModifiedSinceDateSeconds == fileLastModifiedSeconds) {
+                    logger.debug("File {} not modified.", file.getPath());
+                    sendNotModified(ctx, request);
                     return;
                 }
-
-                long fileTotalSize = 0;
-                if (request.headers().contains("X-File-Total-Size")) {
-                    try {
-                        fileTotalSize = Integer.parseInt(request.headers().get("X-File-Total-Size"));
-                    } catch (Exception e) {
-                        logger.warn("invalid X-File-Total-Size value!");
-                    }
-                }
-                
-                readHttpDataChunkByChunk(ctx, decoder, requestId, HttpHeaders.isKeepAlive(request));
-
-                if (chunk instanceof LastHttpContent) {
-                    releaseRequest(request, decoder);
-                }
-            } else {
-                logger.warn("BAD_REQUEST, Not a http request");
-                HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.BAD_REQUEST, "Not a http request");
             }
         }
+
+        RandomAccessFile raf;
+        try {
+            raf = new RandomAccessFile(file, "r");
+        } catch (FileNotFoundException ignore) {
+            sendError(ctx, request, NOT_FOUND);
+            return;
+        }
+        long fileLength = raf.length();
+
+        HttpResponse response = new DefaultHttpResponse(HTTP_1_1, OK);
+        HttpUtil.setContentLength(response, fileLength);
+
+        setContentTypeHeader(response, file);
+        setDateAndCacheHeaders(response, file);
+
+        if (!keepAlive) {
+            response.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.CLOSE);
+        } else if (request.protocolVersion().equals(HTTP_1_0)) {
+            response.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE);
+        }
+
+        // Write the initial line and the header.
+        ctx.write(response);
+
+        // Write the content.
+        ChannelFuture sendFileFuture;
+        ChannelFuture lastContentFuture;
+        if (ctx.pipeline().get(SslHandler.class) == null) {
+            sendFileFuture =
+                ctx.write(new DefaultFileRegion(raf.getChannel(), 0, fileLength), ctx.newProgressivePromise());
+            // Write the end marker.
+            lastContentFuture = ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT);
+        } else {
+            sendFileFuture =
+                ctx.writeAndFlush(new HttpChunkedInput(new ChunkedFile(raf, 0, fileLength, 8192)),
+                    ctx.newProgressivePromise());
+            // HttpChunkedInput will write the end marker (LastHttpContent) for us.
+            lastContentFuture = sendFileFuture;
+        }
+
+        sendFileFuture.addListener(new ChannelProgressiveFutureListener() {
+            @Override
+            public void operationProgressed(ChannelProgressiveFuture future, long progress, long total) {
+                if (total < 0) { // total unknown
+                    logger.debug(future.channel() + " Transfer progress: " + progress);
+                } else {
+                    logger.debug(future.channel() + " Transfer progress: " + progress + " / " + total);
+                }
+            }
+
+            @Override
+            public void operationComplete(ChannelProgressiveFuture future) {
+                logger.debug(future.channel() + " Transfer complete.");
+            }
+        });
+
+        // Decide whether to close the connection or not.
+        if (!keepAlive) {
+            // Close the connection when the whole content is written out.
+            lastContentFuture.addListener(ChannelFutureListener.CLOSE);
+        }
+
     }
 
-    /**
-     * readHttpDataChunkByChunk
-     */
-    private void readHttpDataChunkByChunk(ChannelHandlerContext ctx, HttpPostRequestDecoder decoder, String requestId, boolean isKeepAlive) {
+    private void uploadFile(ChannelHandlerContext ctx, FullHttpRequest request) throws IOException {
         try {
+            decoder = new HttpPostRequestDecoder(factory, request);
+        } catch (HttpPostRequestDecoder.ErrorDataDecoderException e1) {
+            e1.printStackTrace();
+            sendError(ctx, request, BAD_REQUEST);
+            return;
+        }
+        try {
+            decoder.offer(request);
+        } catch (HttpPostRequestDecoder.ErrorDataDecoderException e1) {
+            e1.printStackTrace();
+            writeResponseError(ctx.channel(), BAD_REQUEST, true);
+            return;
+        }
+
+        try {
+            String token = null;
+            FileUpload fileUpload = null;
             while (decoder.hasNext()) {
                 InterfaceHttpData data = decoder.next();
                 if (data != null) {
-                    try {
-                        writeFileUploadData(data, ctx, requestId, isKeepAlive);
-                    } finally {
-                        data.release();
+                    if (data.getHttpDataType() == InterfaceHttpData.HttpDataType.Attribute) {
+                        Attribute attribute = (Attribute) data;
+                        if ("token".equals(attribute.getName()))
+                            token = attribute.getValue();
+                    } else if (data.getHttpDataType() == InterfaceHttpData.HttpDataType.FileUpload) {
+                        fileUpload = (FileUpload) data;
+                    }
+                    if (token != null && fileUpload != null) {
+                        break;
                     }
                 }
             }
-        } catch (Exception e) {
-            logger.info("chunk end");
-        }
-    }
-
-    /**
-     * writeFileUploadData
-     */
-    private void writeFileUploadData(InterfaceHttpData data, ChannelHandlerContext ctx, String requestId, boolean isKeepAlive) {
-        try {
-            if (data.getHttpDataType() == InterfaceHttpData.HttpDataType.FileUpload) {
-                FileUpload fileUpload = (FileUpload) data;
-
-                String remoteFileName = fileUpload.getFilename();
-                long remoteFileSize = fileUpload.length();
-                if (StringUtil.isNullOrEmpty(remoteFileName)) {
-                    logger.warn("remoteFileName is empty!");
-                    HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.BAD_REQUEST, "file name is empty");
-                    return;
-                }
-
-                if (StringUtil.isNullOrEmpty(requestId)) {
-                    logger.warn("requestId is empty!");
-                    HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.BAD_REQUEST, "requestId is empty!");
-                    return;
-                }
-
-                if (remoteFileSize > 10 * 1024 * 1024) {
-                    logger.warn("file over limite!(" + remoteFileSize + ")");
-                    HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.BAD_REQUEST, "file over limite!");
-                    return;
-                }
-
-
-
-                String remoteFileExt = "";
-                if (remoteFileName.lastIndexOf(".") == -1) {
-                    remoteFileExt = "octetstream";
-                    remoteFileName = remoteFileName + "." + remoteFileExt;
-
-                } else {
-                    remoteFileExt = getFileExt(remoteFileName);
-                }
-
-                if (StringUtil.isNullOrEmpty(remoteFileExt) || remoteFileExt.equals("ing")) {
-                    logger.warn("Invalid file extention name");
-                    HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.BAD_REQUEST, "Invalid file extention name");
-                    return;
-                }
-
-                int remoteFileTotalSize = (int) remoteFileSize;
-
-                HttpFileServerController.getInstance().mapChannelHandlerContext(requestId, ctx);
-
-                ByteBuf byteBuf = null;
-                int savedThunkSize = 0; // 分片接收保存的大小
-                int offset = 0; // 断点续传开始位置
-
-                File tmpFile = new File("./" + MediaServerConfig.FILE_STROAGE_ROOT + "/" + requestId);
-
-                boolean isError = false;
-                while (true) {
-                    byte[] thunkData;
-                    try {
-                        byteBuf = fileUpload.getChunk(128 * 1024);
-                        int readableBytesSize = byteBuf.readableBytes();
-                        thunkData = new byte[readableBytesSize];
-                        byteBuf.readBytes(thunkData);
-
-                        put(tmpFile, offset, thunkData);
-
-                        savedThunkSize += readableBytesSize;
-                        offset += readableBytesSize;
-
-                        if (savedThunkSize >= remoteFileSize) {
-                            byteBuf.release();
-                            fileUpload.release();
-                            HttpResponseHelper.sendResponse(requestId, ctx, HttpResponseStatus.OK, HttpHeaders.Values.APPLICATION_JSON, "{\"key\":\"" + requestId + "\"}", true, false);
-                            break;
-                        }
-                    } catch (Exception e) {
-                        logger.error("save thunckData error!", e);
-                        if (fileUpload != null)
-                            fileUpload.release();
-
-                        if (byteBuf != null)
-                            byteBuf.release();
-
-                        HttpResponseHelper.sendResponse(requestId, ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR);
-                        isError = true;
-
-                        return;
-                    } finally {
-                        thunkData = null;
-                        if (isError) {
-                            tmpFile.delete();
-                        }
-                    }
-                }
+            if (token == null) {
+                token = request.headers().get("token");
             }
-        } catch (Exception e) {
-            logger.error("writeHttpData error!", e);
-            HttpResponseHelper.sendResponse(requestId, ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR);
-        }
-    }
-
-    public static void put(File file, long pos, byte[] data) throws Exception {
-        RandomAccessFile raf = null;
-        try {
-            raf = new RandomAccessFile(file, "rwd");
-            raf.seek(pos);
-            raf.write(data);
-        } finally {
+            if (token == null || fileUpload == null) {
+                logger.warn("token or file is null");
+                writeResponseError(ctx.channel(), BAD_REQUEST, false);
+                return;
+            }
+            int bucket = -1;
             try {
-                if (raf != null)
-                    raf.close();
-            } catch (Exception e) {
-                logger.warn("release error!", e);
+                bucket = UploadFileAction.validateToken(token);
+            } catch (UploadFileAction.InvalidateTokenExecption e) {
+                logger.warn("无效的token!", e);
+                writeResponseError(ctx.channel(), UNAUTHORIZED, false);
+                return;
+            }
+            if (bucket == -1) {
+                logger.warn("bucket == -1");
+                writeResponseError(ctx.channel(), BAD_REQUEST, false);
+                return;
+            }
+
+            if (!fileUpload.isCompleted()) {
+                logger.warn("file not completed");
+                writeResponseError(ctx.channel(), BAD_REQUEST, false);
+                return;
+            }
+
+            String remoteFileName = fileUpload.getFilename();
+            long remoteFileSize = fileUpload.length();
+
+            if (remoteFileSize > 200 * 1024 * 1024) {
+                logger.warn("file over limite!(" + remoteFileSize + ")");
+                writeResponseError(ctx.channel(), REQUEST_ENTITY_TOO_LARGE, false);
+                return;
+            }
+
+            String remoteFileExt = "";
+            if (remoteFileName.lastIndexOf(".") == -1) {
+                remoteFileExt = "octetstream";
+                remoteFileName = remoteFileName + "." + remoteFileExt;
+
+            } else {
+                remoteFileExt = getFileExt(remoteFileName);
+            }
+
+            if (StringUtil.isNullOrEmpty(remoteFileExt) || remoteFileExt.equals("ing")) {
+                logger.warn("Invalid file extention name");
+                writeResponseError(ctx.channel(), BAD_REQUEST, false);
+                return;
+            }
+
+
+            Date nowTime = new Date();
+            SimpleDateFormat time = new SimpleDateFormat("yyyy/MM/dd/HH");
+
+            String relativeDir = "fs/" + bucket + "/" + time.format(nowTime);
+
+            File dirFile = new File(MediaServerConfig.FileServerLocalDir + "/" + relativeDir);
+            boolean bFile = dirFile.exists();
+
+            if (!bFile) {
+                bFile = dirFile.mkdirs();
+                if (!bFile) {
+                    writeResponseError(ctx.channel(), INTERNAL_SERVER_ERROR, false);
+                    return;
+                }
+            }
+
+            String requestId = UUID.randomUUID().toString().replace("-", "");
+
+            File tmpFile = new File(dirFile, (StringUtil.isNullOrEmpty(remoteFileName) ? requestId : remoteFileName));
+            String relativePath = relativeDir + "/" + tmpFile.getName();
+            logger.info("the file path is " + tmpFile.getAbsolutePath());
+
+            fileUpload.renameTo(tmpFile);
+            decoder.removeHttpDataFromClean(fileUpload);
+            writeResponseSuccess(ctx.channel(), "{\"key\":\"" + relativePath + "\"}");
+
+        } catch (HttpPostRequestDecoder.EndOfDataDecoderException e1) {
+            // end
+            writeResponseError(ctx.channel(), BAD_REQUEST, false);
+        }
+
+    }
+
+    private void writeResponseSuccess(Channel channel, String msg) {
+        writeResponse(channel, OK, msg, false);
+    }
+
+    private void writeResponseError(Channel channel, HttpResponseStatus status, boolean forceClose) {
+        writeResponse(channel, status, "Failure: " + status + "\r\n", forceClose);
+    }
+
+    private void writeResponse(Channel channel, HttpResponseStatus status, String msg, boolean forceClose) {
+        // Convert the response content to a ChannelBuffer.
+        ByteBuf buf = Unpooled.copiedBuffer(msg, CharsetUtil.UTF_8);
+
+        // Decide whether to close the connection or not.
+        boolean keepAlive = HttpUtil.isKeepAlive(request) && !forceClose;
+
+        // Build the response object.
+        FullHttpResponse response = new DefaultFullHttpResponse(
+            HttpVersion.HTTP_1_1, status, buf);
+        response.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/plain; charset=UTF-8");
+        response.headers().setInt(HttpHeaderNames.CONTENT_LENGTH, buf.readableBytes());
+
+        if (!keepAlive) {
+            response.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.CLOSE);
+        } else if (request.protocolVersion().equals(HttpVersion.HTTP_1_0)) {
+            response.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE);
+        }
+
+        Set<io.netty.handler.codec.http.cookie.Cookie> cookies;
+        String value = request.headers().get(HttpHeaderNames.COOKIE);
+        if (value == null) {
+            cookies = Collections.emptySet();
+        } else {
+            cookies = ServerCookieDecoder.STRICT.decode(value);
+        }
+        if (!cookies.isEmpty()) {
+            // Reset the cookies if necessary.
+            for (io.netty.handler.codec.http.cookie.Cookie cookie : cookies) {
+                response.headers().add(HttpHeaderNames.SET_COOKIE, ServerCookieEncoder.STRICT.encode(cookie));
             }
         }
+        // Write the response.
+        ChannelFuture future = channel.writeAndFlush(response);
+        // Close the connection after the write operation is done if necessary.
+        if (!keepAlive) {
+            future.addListener(ChannelFutureListener.CLOSE);
+        }
     }
 
-    /**
-     * 下载
-     */
-    private void download(ChannelHandlerContext ctx, FullHttpRequest request, String requestId) {
-//        try {
-//            final String httpUri = request.getUri();
-//            if (httpUri.toLowerCase().equals("/favicon.ico")) {
-//                logger.warn("invalid httpUri(" + httpUri + ", requestId=" + requestId + ")");
-//                HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.BAD_REQUEST, "invalid httpUri");
-//                return;
-//            }
-//
-//            String typedDownloadInfo = MetaDataIndexHandler.getTypedDownloadInfo(httpUri);
-//            if (StringUtil.isNullOrEmpty(typedDownloadInfo)) {
-//                logger.warn("invalid httpUri(" + httpUri + ", requestId=" + requestId + ")");
-//                HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.BAD_REQUEST, "invalid httpUri");
-//                return;
-//            }
-//
-//            MetaDataIndex metadataIndex = MetaDataIndexHandler.parseTypedDownloadInfo(typedDownloadInfo);
-//            if (metadataIndex == null) {
-//                logger.warn("invalid typedDownloadInfo!(" + typedDownloadInfo + ", requestId=" + requestId + ")");
-//                HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.BAD_REQUEST, "invalid downloadFileName");
-//                return;
-//            }
-//
-//            int fileSize = MetaDataHandler.getDataFieldLength(metadataIndex);
-//            int chunkSize = FileStorageConst.Stroage_Remote_Invoke_Thunk_Size;
-//            int chunkCount = fileSize % chunkSize == 0 ? (int) (fileSize / chunkSize) : (int) (fileSize / chunkSize + 1);
-//
-//            ClusterNode toNode = StorageClusterRouterManager.getInstance().getDownloadNode(metadataIndex.getClusterNode());
-//            if(toNode == null) {
-//                logger.warn("toNode is null!(" + typedDownloadInfo + ", requestId=" + requestId + ")");
-//                HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.NOT_FOUND, "File Not Existed");
-//                return;
-//            }
-//
-//            ClusterNode fromNode = StorageClusterRouterManager.getInstance().getSelfNode();
-//            ActorSystem actorSystem = StorageClusterRouterManager.getInstance().getStorageActorSystem();
-//            ActorRef toActorRef = actorSystem.actorOf(toNode.getIp(), toNode.getRpcPort(), ActorType.DownloadActor.getName());
-//            ActorRef fromActorRef = actorSystem.actorOf(fromNode.getIp(),fromNode.getRpcPort(), ActorType.HttpFileServerActor.getName());
-//
-//            HttpFileServerController.getInstance().mapChannelHandlerContext(requestId, ctx);
-//
-//            DownloadMsg downloadMsg = new DownloadMsg();
-//            downloadMsg.setRequestId(requestId);
-//            downloadMsg.setIsKeepAlive(HttpHeaders.isKeepAlive(request));
-//            downloadMsg.setClusterNode(metadataIndex.getClusterNode());
-//            downloadMsg.setFileSize(fileSize);
-//            downloadMsg.setChunkIndex(0);
-//            downloadMsg.setChunkSize(chunkSize);
-//            downloadMsg.setChunkCount(chunkCount);
-//            downloadMsg.setTime(metadataIndex.getTime());
-//            downloadMsg.setBigFileIndex(metadataIndex.getBigFileIndex());
-//            downloadMsg.setOffset(metadataIndex.getOffset());
-//            downloadMsg.setMetaDataTotalLength(metadataIndex.getMetaDataTotalLength());
-//            downloadMsg.setFileType(metadataIndex.getFileType());
-//            downloadMsg.setBigFilePath(metadataIndex.getBigFilePath());
-//            downloadMsg.setStorageEngineVersion(metadataIndex.getStorageEngineVersion());
-//            toActorRef.tell(downloadMsg, fromActorRef);
-//        } catch (Exception e) {
-//            logger.error("download error!", e);
-//            HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR);
-//        } finally {
-//            releaseRequest(request, null);
-//        }
+    private void sendNotModified(ChannelHandlerContext ctx, FullHttpRequest request) {
+        FullHttpResponse response = new DefaultFullHttpResponse(HTTP_1_1, NOT_MODIFIED, Unpooled.EMPTY_BUFFER);
+        setDateHeader(response);
+
+
+        sendAndCleanupConnection(ctx, request, response);
     }
 
-    /**
-     * 删除
-     */
-    private void delete(ChannelHandlerContext ctx, FullHttpRequest request, String requestId) {
-//        try {
-//            final String httpUri = request.getUri();
-//            String typedDownloadInfo = MetaDataIndexHandler.getTypedDownloadInfo(httpUri);
-//            if (StringUtil.isNullOrEmpty(typedDownloadInfo)) {
-//                logger.warn("invalid httpUri(" + httpUri + ")");
-//                HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.BAD_REQUEST, "invalid httpUri");
-//                return;
-//            }
-//
-//            MetaDataIndex metadataIndex = MetaDataIndexHandler.parseTypedDownloadInfo(typedDownloadInfo);
-//            if (metadataIndex == null) {
-//                logger.warn("invalid typedDownloadInfo!(" + typedDownloadInfo + ")");
-//                HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.BAD_REQUEST, "invalid downloadFileName");
-//            }
-//
-//            ClusterNode toNode = StorageClusterRouterManager.getInstance().getClusterNode(metadataIndex.getClusterNode());
-//            ClusterNode fromNode = StorageClusterRouterManager.getInstance().getSelfNode();
-//            ActorSystem actorSystem = StorageClusterRouterManager.getInstance().getStorageActorSystem();
-//            ActorRef toActorRef = actorSystem.actorOf(toNode.getIp(), toNode.getRpcPort(), ActorType.DeleteActor.getName());
-//            ActorRef fromActorRef = actorSystem.actorOf(fromNode.getIp(),fromNode.getRpcPort(), ActorType.HttpFileServerActor.getName());
-//
-//            HttpFileServerController.getInstance().mapChannelHandlerContext(requestId, ctx);
-//
-//            DeleteMsg downloadMsg = new DeleteMsg();
-//            downloadMsg.setRequestId(requestId);
-//            downloadMsg.setIsKeepAlive(HttpHeaders.isKeepAlive(request));
-//            downloadMsg.setClusterNode(metadataIndex.getClusterNode());
-//            downloadMsg.setTime(metadataIndex.getTime());
-//            downloadMsg.setBigFileIndex(metadataIndex.getBigFileIndex());
-//            downloadMsg.setOffset(metadataIndex.getOffset());
-//            downloadMsg.setMetaDataTotalLength(metadataIndex.getMetaDataTotalLength());
-//            downloadMsg.setFileType(metadataIndex.getFileType());
-//            downloadMsg.setBigFilePath(metadataIndex.getBigFilePath());
-//            downloadMsg.setStorageEngineVersion(metadataIndex.getStorageEngineVersion());
-//            toActorRef.tell(downloadMsg, fromActorRef);
-//        } catch (Exception e) {
-//            logger.error("delete error!", e);
-//            HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR);
-//        } finally {
-//            releaseRequest(request, null);
-//        }
+    private void sendError(ChannelHandlerContext ctx, FullHttpRequest request, HttpResponseStatus status) {
+        FullHttpResponse response = new DefaultFullHttpResponse(
+            HTTP_1_1, status, Unpooled.copiedBuffer("Failure: " + status + "\r\n", CharsetUtil.UTF_8));
+        response.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/plain; charset=UTF-8");
+
+        sendAndCleanupConnection(ctx, request, response);
     }
 
-    /**
-     * HTTP能力探测
-     */
-    private void doOptions(ChannelHandlerContext ctx, FullHttpRequest request) {
-        try {
-            boolean isKeepAlive = HttpHeaders.isKeepAlive(request);
-            FullHttpResponse response = new DefaultFullHttpResponse(HTTP_1_1, HttpResponseStatus.NO_CONTENT);
-            response.headers().set(CONTENT_TYPE, HttpHeaders.Values.APPLICATION_JSON);
-            response.headers().set(TRANSFER_ENCODING, "chunked");
-            if (isKeepAlive)
-                response.headers().set(HttpHeaders.Names.CONNECTION, HttpHeaders.Values.KEEP_ALIVE);
-            response.headers().set(ACCESS_CONTROL_ALLOW_ORIGIN, "*");
-            response.headers().set(ACCESS_CONTROL_ALLOW_METHODS, "GET, POST, DELETE, OPTIONS");
-            response.headers().set(ACCESS_CONTROL_ALLOW_HEADERS, "DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization");
+    private void sendAndCleanupConnection(ChannelHandlerContext ctx, FullHttpRequest request, FullHttpResponse response) {
+        final boolean keepAlive = HttpUtil.isKeepAlive(request);
+        HttpUtil.setContentLength(response, response.content().readableBytes());
+        if (!keepAlive) {
+            // We're going to close the connection as soon as the response is sent,
+            // so we should also make it clear for the client.
+            response.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.CLOSE);
+        } else if (request.protocolVersion().equals(HTTP_1_0)) {
+            response.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE);
+        }
 
-            ChannelFuture future = ctx.channel().writeAndFlush(response);
-            if (!isKeepAlive) {
-                future.addListener(ChannelFutureListener.CLOSE);
-            }
-        } catch (Exception e) {
-            logger.error("doOptions error!", e);
-            HttpResponseHelper.sendResponse("", ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR);
-        } finally {
-            releaseRequest(request, null);
+        ChannelFuture flushPromise = ctx.writeAndFlush(response);
+
+        if (!keepAlive) {
+            // Close the connection as soon as the response is sent.
+            flushPromise.addListener(ChannelFutureListener.CLOSE);
         }
     }
 
     /**
-     * releaseRequest
+     * 通过URL中的path获得文件的绝对路径
+     *
+     * @param httpPath Http请求的Path
+     * @return 文件绝对路径
      */
-    private void releaseRequest(FullHttpRequest request, HttpPostRequestDecoder decoder) {
+    public File getFileByPath(String httpPath) {
+        // Decode the path.
         try {
-            if (request != null)
-                request.release();
-
-            request = null;
-
-            if (decoder != null)
-                decoder.destroy();
-
-            decoder = null;
-        } catch (Exception e) {
-            logger.error("reset error!", e);
+            httpPath = URLDecoder.decode(httpPath, "UTF-8");
+        } catch (UnsupportedEncodingException e) {
+            throw new Error(e);
         }
+
+        if (httpPath.isEmpty() || httpPath.charAt(0) != '/') {
+            return null;
+        }
+
+        // 路径安全检查
+        String path = httpPath.substring(0, httpPath.lastIndexOf("/"));
+        if (path.contains("/.") || path.contains("./") || ReUtil.isMatch(INSECURE_URI, path)) {
+            return null;
+        }
+
+        // 转换为绝对路径
+        return FileUtil.file(ServerSetting.getRoot(), httpPath);
     }
+
+
+    /**
+     * Sets the Date header for the HTTP response
+     *
+     * @param response HTTP response
+     */
+    private void setDateHeader(FullHttpResponse response) {
+//        SimpleDateFormat dateFormatter = new SimpleDateFormat(HTTP_DATE_FORMAT, Locale.US);
+//        dateFormatter.setTimeZone(TimeZone.getTimeZone(HTTP_DATE_GMT_TIMEZONE));
+
+        Calendar time = new GregorianCalendar();
+        response.headers().set(HttpHeaderNames.DATE, dateFormatter.format(time.getTime()));
+    }
+
+
+    /**
+     * Sets the Date and Cache headers for the HTTP Response
+     *
+     * @param response    HTTP response
+     * @param fileToCache file to extract content type
+     */
+    private void setDateAndCacheHeaders(HttpResponse response, File fileToCache) {
+//        SimpleDateFormat dateFormatter = new SimpleDateFormat(HTTP_DATE_FORMAT, Locale.US);
+//        dateFormatter.setTimeZone(TimeZone.getTimeZone(HTTP_DATE_GMT_TIMEZONE));
+
+        // Date header
+        Calendar time = new GregorianCalendar();
+        response.headers().set(HttpHeaderNames.DATE, dateFormatter.format(time.getTime()));
+
+        // Add cache headers
+        time.add(Calendar.SECOND, HTTP_CACHE_SECONDS);
+        response.headers().set(HttpHeaderNames.EXPIRES, dateFormatter.format(time.getTime()));
+        response.headers().set(HttpHeaderNames.CACHE_CONTROL, "private, max-age=" + HTTP_CACHE_SECONDS);
+        response.headers().set(
+            HttpHeaderNames.LAST_MODIFIED, dateFormatter.format(new Date(fileToCache.lastModified())));
+    }
+
+    /**
+     * Sets the content type header for the HTTP Response
+     *
+     * @param response HTTP response
+     * @param file     file to extract content type
+     */
+    private void setContentTypeHeader(HttpResponse response, File file) {
+//        MimetypesFileTypeMap mimeTypesMap = new MimetypesFileTypeMap();
+        String contentType = com.xiaoleilu.hutool.http.HttpUtil.getMimeType(file.getName());
+        response.headers().set(HttpHeaderNames.CONTENT_TYPE, contentType == null ? "application/octet-stream" : contentType);
+    }
+
 }

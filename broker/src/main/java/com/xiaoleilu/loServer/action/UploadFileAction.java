@@ -34,7 +34,6 @@ import static com.xiaoleilu.loServer.handler.HttpResponseHelper.getFileExt;
 @HttpMethod("POST")
 @RequireAuthentication
 public class UploadFileAction extends Action {
-    private static final String KEY = "imfile";
     private static final Logger logger = LoggerFactory.getLogger(UploadFileAction.class);
     private static final HttpDataFactory factory = new DefaultHttpDataFactory(false);
 
@@ -42,8 +41,13 @@ public class UploadFileAction extends Action {
 
     }
 
+    public static void main(String[] args) {
+        MediaServerConfig.FileServerTokenKey = "cdblue_file_server_token";
+        System.out.println(getToken(1));
+    }
+
     public static String getToken(int type) {
-        String signKey = KEY + "|" + (System.currentTimeMillis()) + "|" + type;
+        String signKey = MediaServerConfig.FileServerTokenKey + "|" + (System.currentTimeMillis()) + "|" + type;
         try {
             return DES.encryptDES(signKey);
         } catch (Exception e) {
@@ -58,7 +62,7 @@ public class UploadFileAction extends Action {
             String signKey = DES.decryptDES(token);
             String[] parts = signKey.split("\\|");
             if(parts.length == 3) {
-                if(parts[0].equals(KEY)) {
+                if(parts[0].equals(MediaServerConfig.FileServerTokenKey)) {
                     long timestamp = Long.parseLong(parts[1]);
                     if(Math.abs(System.currentTimeMillis() - timestamp) < 2 * 60 * 60 * 1000) {
                         return Integer.parseInt(parts[2]);
@@ -233,18 +237,15 @@ public class UploadFileAction extends Action {
                 int savedThunkSize = 0; // 分片接收保存的大小
                 int offset = 0; // 断点续传开始位置
 
-                Date nowTime=new Date();
-                SimpleDateFormat time=new SimpleDateFormat("yyyy/MM/dd/HH");
-                String datePath = time.format(nowTime);
+                Date nowTime = new Date();
+                SimpleDateFormat time = new SimpleDateFormat("yyyy/MM/dd/HH");
 
-                datePath = "fs/" + bucket[0] + "/" + datePath; //add bucket
+                String relativeDir = "fs/" + bucket[0] + "/" + time.format(nowTime);
 
-                String dir = "./" + MediaServerConfig.FILE_STROAGE_ROOT + "/" + datePath;
+                File dirFile = new File(MediaServerConfig.FileServerLocalDir + "/" + relativeDir);
+                boolean bFile = dirFile.exists();
 
-                File dirFile = new File(dir);
-                boolean bFile  = dirFile.exists();
-
-                if(!bFile) {
+                if (!bFile) {
                     bFile = dirFile.mkdirs();
                     if (!bFile) {
                         response.setStatus(HttpResponseStatus.INTERNAL_SERVER_ERROR);
@@ -253,11 +254,8 @@ public class UploadFileAction extends Action {
                     }
                 }
 
-
-                String filePath = dir + "/" + (StringUtil.isNullOrEmpty(remoteFileName) ? requestId : remoteFileName);
-                logger.info("the file path is " + filePath);
-
-                File tmpFile = new File(filePath);
+                File tmpFile = new File(dirFile, (StringUtil.isNullOrEmpty(remoteFileName) ? requestId : remoteFileName));
+                logger.info("the file path is " + tmpFile.getAbsolutePath());
 
                 logger.info("before write the file");
                 boolean isError = false;
@@ -279,7 +277,7 @@ public class UploadFileAction extends Action {
                             fileUpload.release();
 
                             response.setStatus(HttpResponseStatus.OK);
-                            String relativePath = datePath + "/" +  (StringUtil.isNullOrEmpty(remoteFileName) ? requestId : remoteFileName);
+                            String relativePath = relativeDir + "/" + tmpFile.getName();
                             response.setContent("{\"key\":\"" + relativePath + "\"}");
                             break;
                         }

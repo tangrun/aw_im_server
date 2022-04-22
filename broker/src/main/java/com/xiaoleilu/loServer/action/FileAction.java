@@ -26,7 +26,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * 默认的主页Action，当访问主页且没有定义主页Action时，调用此Action
- * 
+ *
  * @author Looly
  *
  */
@@ -67,7 +67,7 @@ public class FileAction extends Action {
         }
 
         Logger.debug("Client [{}] get file [{}]", request.getIp(), file.getPath());
-        
+
         // Cache Validation
         String ifModifiedSince = request.getHeader(HttpHeaderNames.IF_MODIFIED_SINCE.toString());
         if (StrUtil.isNotBlank(ifModifiedSince)) {
@@ -94,12 +94,12 @@ public class FileAction extends Action {
     }
 
     private static final Pattern INSECURE_URI = Pattern.compile(".*[<>&\"].*");
-	private static final SimpleDateFormat HTTP_DATE_FORMATER = new SimpleDateFormat(DateUtil.HTTP_DATETIME_PATTERN, Locale.US);
+	public static final SimpleDateFormat HTTP_DATE_FORMATER = new SimpleDateFormat(DateUtil.HTTP_DATETIME_PATTERN, Locale.US);
 
-	
+
 	/**
 	 * 通过URL中的path获得文件的绝对路径
-	 * 
+	 *
 	 * @param httpPath Http请求的Path
 	 * @return 文件绝对路径
 	 */

@@ -20,6 +20,17 @@ import java.io.File;
 
 public final class BrokerConstants {
 
+    public static final String LAUNCH_TYPE = "launcher.type";
+
+    public static final String FILE_SERVER_TOKEN_KEY = "file.server.token.key";
+    public static final String FILE_SERVER_LOCAL_PORT = "file.server.local.port";
+    public static final String FILE_SERVER_LOCAL_DIR = "file.server.local.dir";
+
+    public static final String FILE_SERVER_UPLOAD_URL = "file.server.upload.url";
+    public static final String FILE_SERVER_UPLOAD_PORT = "file.server.upload.port";
+    public static final String FILE_SERVER_DOWNLOAD_URL = "file.server.download.url";
+
+
     public static final String INTERCEPT_HANDLER_PROPERTY_NAME = "intercept.handler";
     public static final String BROKER_INTERCEPTOR_THREAD_POOL_SIZE = "intercept.thread_pool.size";
     public static final String PERSISTENT_STORE_PROPERTY_NAME = "persistent_store";

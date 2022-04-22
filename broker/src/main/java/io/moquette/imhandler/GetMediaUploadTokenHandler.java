@@ -18,8 +18,6 @@ import io.moquette.server.config.MediaServerConfig;
 import io.moquette.spi.impl.Qos1PublishHandler;
 import io.netty.buffer.ByteBuf;
 
-import static io.moquette.server.config.MediaServerConfig.FILE_STROAGE_REMOTE_SERVER_URL;
-
 @Handler("GMUT")
 public class GetMediaUploadTokenHandler extends IMHandler<WFCMessage.GetUploadTokenRequest> {
     @Override
@@ -84,13 +82,9 @@ public class GetMediaUploadTokenHandler extends IMHandler<WFCMessage.GetUploadTo
             resultBuilder.setPort(80);
         } else {
             token = UploadFileAction.getToken(type);
-            if(StringUtil.isNullOrEmpty(MediaServerConfig.FILE_STROAGE_REMOTE_SERVER_URL)) {
-                resultBuilder.setDomain("http://" + MediaServerConfig.SERVER_IP + ":" + MediaServerConfig.HTTP_SERVER_PORT);
-            } else {
-                resultBuilder.setDomain(MediaServerConfig.FILE_STROAGE_REMOTE_SERVER_URL);
-            }
-            resultBuilder.setServer(MediaServerConfig.SERVER_IP);
-            resultBuilder.setPort(MediaServerConfig.HTTP_SERVER_PORT);
+            resultBuilder.setDomain( MediaServerConfig.FileServerDownloadUrl)
+                .setPort(MediaServerConfig.FileServerUploadPort)
+                .setServer(MediaServerConfig.FileServerUploadUrl);
         }
 
         resultBuilder.setToken(token);

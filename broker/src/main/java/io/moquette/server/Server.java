@@ -23,6 +23,7 @@ import com.hazelcast.config.ClasspathXmlConfig;
 import com.hazelcast.config.Config;
 import com.hazelcast.config.FileSystemXmlConfig;
 import com.hazelcast.core.*;
+import com.xiaoleilu.loServer.LoFileServer;
 import com.xiaoleilu.loServer.LoServer;
 import com.xiaoleilu.loServer.ServerSetting;
 import com.xiaoleilu.loServer.action.Action;
@@ -117,30 +118,47 @@ public class Server {
         instance.mConfig = config;
         ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.ADVANCED);
 
-        instance.startServer(config);
+        int type = Integer.parseInt(config.getProperty(LAUNCH_TYPE, "0"));
 
-        int httpLocalPort = Integer.parseInt(config.getProperty(BrokerConstants.HTTP_LOCAL_PORT));
-        int httpAdminPort = Integer.parseInt(config.getProperty(BrokerConstants.HTTP_ADMIN_PORT));
+        if (type ==0 || type ==2){
+            instance.startServer(config);
 
-        AdminAction.setSecretKey(config.getProperty(HTTP_SERVER_SECRET_KEY));
-        AdminAction.setNoCheckTime(config.getProperty(HTTP_SERVER_API_NO_CHECK_TIME));
+            int httpLocalPort = Integer.parseInt(config.getProperty(BrokerConstants.HTTP_LOCAL_PORT));
+            int httpAdminPort = Integer.parseInt(config.getProperty(BrokerConstants.HTTP_ADMIN_PORT));
 
-        final LoServer httpServer = new LoServer(httpLocalPort, httpAdminPort, instance.m_processor.getMessagesStore(), instance.m_store.sessionsStore());
-        try {
-            httpServer.start();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-            Utility.printExecption(LOG, e);
+            AdminAction.setSecretKey(config.getProperty(HTTP_SERVER_SECRET_KEY));
+            AdminAction.setNoCheckTime(config.getProperty(HTTP_SERVER_API_NO_CHECK_TIME));
+
+            final LoServer httpServer = new LoServer(httpLocalPort, httpAdminPort, instance.m_processor.getMessagesStore(), instance.m_store.sessionsStore());
+            try {
+                httpServer.start();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                Utility.printExecption(LOG, e);
+            }
+
+            final PushServer pushServer = PushServer.getServer();
+            pushServer.init(config, instance.getStore().sessionsStore());
+
+            //Bind  a shutdown hook
+            Runtime.getRuntime().addShutdownHook(new Thread(instance::stopServer));
+            Runtime.getRuntime().addShutdownHook(new Thread(httpServer::shutdown));
+
+            System.out.println("IM server start success...");
         }
 
-        final PushServer pushServer = PushServer.getServer();
-        pushServer.init(config, instance.getStore().sessionsStore());
-
-        //Bind  a shutdown hook
-        Runtime.getRuntime().addShutdownHook(new Thread(instance::stopServer));
-        Runtime.getRuntime().addShutdownHook(new Thread(httpServer::shutdown));
-
-        System.out.println("Wildfire IM server start success...");
+        if (type ==1 || type ==2){
+            instance.initFileServerConfig(config);
+            LoFileServer loFileServer = new LoFileServer(MediaServerConfig.FileServerLocalPort);
+            try {
+                loFileServer.start();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                Utility.printExecption(LOG, e);
+            }
+            Runtime.getRuntime().addShutdownHook(new Thread(loFileServer::shutdown));
+            System.out.println("file server start success...");
+        }
     }
 
     /**
@@ -308,6 +326,21 @@ public class Server {
         return m_store;
     }
 
+    private void initFileServerConfig(IConfig config){
+        MediaServerConfig.FileServerTokenKey = config.getProperty(FILE_SERVER_TOKEN_KEY);
+        MediaServerConfig.FileServerLocalDir = config.getProperty(FILE_SERVER_LOCAL_DIR);
+        MediaServerConfig.FileServerLocalPort =Integer.parseInt( config.getProperty(FILE_SERVER_LOCAL_PORT));
+        MediaServerConfig.FileServerUploadUrl =config.getProperty(FILE_SERVER_UPLOAD_URL);
+        MediaServerConfig.FileServerUploadPort =Integer.parseInt( config.getProperty(FILE_SERVER_UPLOAD_PORT));
+        MediaServerConfig.FileServerDownloadUrl = config.getProperty(FILE_SERVER_DOWNLOAD_URL);
+
+        File file = new File(MediaServerConfig.FileServerLocalDir);
+        if (!file.exists()) {
+            file.mkdirs();
+        }
+        ServerSetting.setRoot(file);
+    }
+
     private void initMediaServerConfig(IConfig config) {
     	MediaServerConfig.QINIU_ACCESS_KEY = config.getProperty(BrokerConstants.QINIU_ACCESS_KEY, MediaServerConfig.QINIU_ACCESS_KEY);
     	MediaServerConfig.QINIU_SECRET_KEY = config.getProperty(BrokerConstants.QINIU_SECRET_KEY, MediaServerConfig.QINIU_SECRET_KEY);
@@ -343,18 +376,7 @@ public class Server {
         MediaServerConfig.QINIU_BUCKET_FAVORITE_NAME = config.getProperty(BrokerConstants.QINIU_BUCKET_FAVORITE_NAME);
         MediaServerConfig.QINIU_BUCKET_FAVORITE_DOMAIN = config.getProperty(BrokerConstants.QINIU_BUCKET_FAVORITE_DOMAIN);
 
-
-    	MediaServerConfig.SERVER_IP = getServerIp(config);
-
-        MediaServerConfig.HTTP_SERVER_PORT = Integer.parseInt(config.getProperty(BrokerConstants.HTTP_SERVER_PORT));
-
-        MediaServerConfig.FILE_STROAGE_ROOT = config.getProperty(BrokerConstants.FILE_STORAGE_ROOT, MediaServerConfig.FILE_STROAGE_ROOT);
-        File file = new File(MediaServerConfig.FILE_STROAGE_ROOT);
-        if (!file.exists()) {
-            file.mkdirs();
-        }
-        ServerSetting.setRoot(file);
-        MediaServerConfig.FILE_STROAGE_REMOTE_SERVER_URL = config.getProperty(FILE_STORAGE_REMOTE_SERVER_URL);
+        initFileServerConfig(config);
 
         MediaServerConfig.USER_QINIU = Integer.parseInt(config.getProperty(BrokerConstants.USER_QINIU)) > 0;
         if(MediaServerConfig.USER_QINIU) {
@@ -365,7 +387,7 @@ public class Server {
             }
         }
     }
-    
+
     private String getServerIp(IConfig config) {
         String serverIp = config.getProperty(BrokerConstants.SERVER_IP_PROPERTY_NAME);
         if (serverIp == null || serverIp.equals("0.0.0.0")) {
