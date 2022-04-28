@@ -227,6 +227,33 @@ public class Qos1PublishHandler extends QosPublishHandler {
         void onRouteHandled(byte[] ackPayload);
     }
 
+    void internalReceivedPublishQos1(MqttPublishMessage msg, final String clientID,final String username) {
+        // verify if topic can be write
+        final Topic topic = new Topic(msg.variableHeader().topicName());
+        if (!m_authorizator.canWrite(topic, username, clientID)) {
+            LOG.error("internal MQTT client is not authorized to publish on topic. CId={}, topic={}", clientID, topic);
+            return;
+        }
+
+        final int messageID = msg.variableHeader().packetId();
+        String imtopic = topic.getTopic();
+        ByteBuf payload = msg.payload();
+        byte[] payloadContent = readBytesAndRewind(payload);
+        if(payloadContent.length == 0) {
+            LOG.error("internal MQTT client is not payload data to publish on topic. CId={}, topic={}", clientID, topic);
+            return;
+        }
+
+        MemorySessionStore.Session session = m_sessionStore.getSession(clientID);
+        payloadContent = AES.AESDecrypt(payloadContent, session.getSecret(), true);
+        imHandler(clientID, username, imtopic, payloadContent, (errorCode, ackPayload) ->
+            {
+                ackPayload.release();
+                LOG.error("internal MQTT client to publish on topic. handled CId={}, topic={}, code={}", clientID, topic,errorCode);
+            }
+            , ProtoConstants.RequestSourceType.Request_From_User);
+    }
+
     void receivedPublishQos1(Channel channel, MqttPublishMessage msg) {
         // verify if topic can be write
         final Topic topic = new Topic(msg.variableHeader().topicName());

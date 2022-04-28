@@ -490,17 +490,25 @@ public class ProtocolProcessor {
      * @param clientId
      *            the clientID
      */
-    public void internalPublish(MqttPublishMessage msg, final String clientId) {
-        ConnectionDescriptor descriptor = connectionDescriptors.getConnection(clientId);
-        if (descriptor == null){
-            return;
-        }
-
+    public void internalPublish(MqttPublishMessage msg, final String clientId,final String userName) {
         final MqttQoS qos = msg.fixedHeader().qosLevel();
-        final Topic topic = new Topic(msg.variableHeader().topicName());
-        LOG.info("Processing internal PUBLISH message. Topic={}, qos={}", topic, qos);
 
-        processPublish(descriptor.getChannel(), msg);
+        LOG.info("internal Processing PUBLISH message. CId={}, topic={}, messageId={}, qos={}", clientId,
+            msg.variableHeader().topicName(), msg.variableHeader().packetId(), qos);
+        switch (qos) {
+            case AT_MOST_ONCE:
+                //not support
+                break;
+            case AT_LEAST_ONCE:
+                this.qos1PublishHandler.internalReceivedPublishQos1(msg, clientId,userName);
+                break;
+            case EXACTLY_ONCE:
+                //not use
+                break;
+            default:
+                LOG.error("internal Unknown QoS-Type:{}", qos);
+                break;
+        }
     }
 
 

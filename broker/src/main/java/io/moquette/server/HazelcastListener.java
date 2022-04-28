@@ -1,12 +1,14 @@
 package io.moquette.server;
 
 import com.hazelcast.core.HazelcastInstance;
-import com.hazelcast.core.ITopic;
 import com.hazelcast.core.Message;
 import com.hazelcast.core.MessageListener;
+import io.moquette.imhandler.IMHandler;
 import io.moquette.interception.HazelcastInterceptHandler;
+import io.moquette.interception.dispatch.DispatchPublish2Receives;
 import io.moquette.interception.messages.*;
 import io.moquette.spi.ClientSession;
+import io.moquette.spi.impl.MessagesPublisher;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.mqtt.*;
@@ -14,12 +16,9 @@ import io.netty.util.ReferenceCountUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static io.moquette.server.ConnectionDescriptor.ConnectionState.INTERCEPTORS_NOTIFIED;
-import static io.moquette.server.ConnectionDescriptor.ConnectionState.MESSAGES_DROPPED;
-
 public class HazelcastListener {
     private static final Logger LOG = LoggerFactory.getLogger(HazelcastListener.class);
-    private final Server server;
+    private final        Server server;
 
     public HazelcastListener(Server server) {
         this.server = server;
@@ -29,18 +28,41 @@ public class HazelcastListener {
         LOG.info("Subscribing to Hazelcast topic.");
 
         HazelcastInstance hz = server.getHazelcastInstance();
-        hz.<InterceptConnectMessage>getTopic(HazelcastInterceptHandler.TOPIC_CONNECT)
-            .addMessageListener(this::onConnectMessage);
-        hz.<InterceptPublishMessage>getTopic(HazelcastInterceptHandler.TOPIC_CONNECT_LOST)
+//        hz.<InterceptConnectMessage>getTopic(HazelcastInterceptHandler.TOPIC_CONNECT)
+//            .addMessageListener(this::onConnectMessage);
+//        hz.<InterceptPublishMessage>getTopic(HazelcastInterceptHandler.TOPIC_CONNECT_LOST)
+//            .addMessageListener(this::onPublishMessage);
+//        hz.<InterceptPublishMessage>getTopic(HazelcastInterceptHandler.TOPIC_DISCONNECT)
+//            .addMessageListener(this::onPublishMessage);
+//        hz.<InterceptPublishMessage>getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH)
+//            .addMessageListener(this::onPublishMessage);
+//        hz.<InterceptPublishMessage>getTopic(HazelcastInterceptHandler.TOPIC_ACK)
+//            .addMessageListener(this::onPublishMessage);
+        MessagesPublisher publisher = IMHandler.getPublisher();
+
+        hz.<DispatchPublish2Receives>getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH)
+            .addMessageListener(new MessageListener<DispatchPublish2Receives>() {
+                @Override
+                public void onMessage(Message<DispatchPublish2Receives> msg) {
+                    try {
+                        if (!msg.getPublishingMember().equals(server.getHazelcastInstance().getCluster().getLocalMember())) {
+                            DispatchPublish2Receives hzMsg = msg.getMessageObject();
+                            publisher.dispatchPublish2Receivers();
+                        }
+                    } catch (Exception ex) {
+                        LOG.error("error handle hazelcast connect event", ex);
+                    }
+                }
+            });
+        hz.<InterceptPublishMessage>getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH_TRANSPARENT)
             .addMessageListener(this::onPublishMessage);
-        hz.<InterceptPublishMessage>getTopic(HazelcastInterceptHandler.TOPIC_DISCONNECT)
+        hz.<InterceptPublishMessage>getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH_NOTIFICATION)
             .addMessageListener(this::onPublishMessage);
-        hz.<InterceptPublishMessage>getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH)
-            .addMessageListener(this::onPublishMessage);
-        hz.<InterceptPublishMessage>getTopic(HazelcastInterceptHandler.TOPIC_ACK)
+        hz.<InterceptPublishMessage>getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH_RECALL)
             .addMessageListener(this::onPublishMessage);
 
     }
+
     private void onConnectMessage(Message<InterceptConnectMessage> msg) {
         try {
             if (!msg.getPublishingMember().equals(server.getHazelcastInstance().getCluster().getLocalMember())) {
@@ -49,8 +71,8 @@ public class HazelcastListener {
 
                 server.getStore().sessionsStore().loadUserSession(hzMsg.getUsername(), hzMsg.getClientID());
                 ClientSession clientSession = server.getStore().sessionsStore().sessionForClient(hzMsg.getClientID());
-                if (clientSession != null){
-                    server.getStore().sessionsStore().updateExistSession(hzMsg.getUsername(), hzMsg.getClientID(),null, hzMsg.isClearSession());
+                if (clientSession != null) {
+                    server.getStore().sessionsStore().updateExistSession(hzMsg.getUsername(), hzMsg.getClientID(), null, hzMsg.isClearSession());
                 }
             }
         } catch (Exception ex) {
@@ -66,7 +88,7 @@ public class HazelcastListener {
 
                 ClientSession clientSession = server.getStore().sessionsStore().sessionForClient(hzMsg.getClientID());
                 if (hzMsg.)
-                clientSession.cleanSession();
+                    clientSession.cleanSession();
 
                 server.getStore().sessionsStore().loadUserSession(hzMsg.getUsername(), hzMsg.getClientID());
             }
@@ -97,9 +119,9 @@ public class HazelcastListener {
                     hzMsg.getPayload());
                 // TODO pass forward this information in somehow publishMessage.setLocal(false);
 
-                MqttQoS qos = MqttQoS.valueOf(hzMsg.getQos());
-                MqttFixedHeader fixedHeader = new MqttFixedHeader(MqttMessageType.PUBLISH, false, qos, false, 0);
-                MqttPublishVariableHeader varHeader = new MqttPublishVariableHeader(hzMsg.getTopic(), 0);
+                MqttQoS                   qos         = MqttQoS.valueOf(hzMsg.getQos());
+                MqttFixedHeader           fixedHeader = new MqttFixedHeader(MqttMessageType.PUBLISH, false, qos, false, 0);
+                MqttPublishVariableHeader varHeader   = new MqttPublishVariableHeader(hzMsg.getTopic(), 0);
                 payload = Unpooled.wrappedBuffer(hzMsg.getPayload());
                 MqttPublishMessage publishMessage = new MqttPublishMessage(fixedHeader, varHeader, payload);
 
@@ -109,8 +131,7 @@ public class HazelcastListener {
                         messageID);
                     throw new IllegalStateException("Can't publish on a server is not yet started");
                 }
-                server.onApiMessage();
-                server.getProcessor().internalPublish(publishMessage, hzMsg.getClientId());
+                server.getProcessor().internalPublish(publishMessage, hzMsg.getClientId(), hzMsg.getUsername());
             }
         } catch (Exception ex) {
             LOG.error("error polling hazelcast msg queue", ex);

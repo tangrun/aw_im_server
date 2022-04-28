@@ -124,8 +124,6 @@ public class Server {
 
         if (type ==0 || type ==2){
             instance.startServer(config);
-            // 消息拦截 发送到集群中
-            instance.addInterceptHandler(new HazelcastInterceptHandler(instance));
 
             int httpLocalPort = Integer.parseInt(config.getProperty(BrokerConstants.HTTP_LOCAL_PORT));
             int httpAdminPort = Integer.parseInt(config.getProperty(BrokerConstants.HTTP_ADMIN_PORT));

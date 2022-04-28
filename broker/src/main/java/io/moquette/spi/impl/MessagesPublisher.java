@@ -26,6 +26,11 @@ import com.hazelcast.util.StringUtil;
 import cn.wildfirechat.pojos.OutputNotifyChannelSubscribeStatus;
 import cn.wildfirechat.pojos.SendMessageData;
 import com.xiaoleilu.loServer.model.FriendData;
+import io.moquette.interception.HazelcastInterceptHandler;
+import io.moquette.interception.dispatch.DispatchPublish2Receives;
+import io.moquette.interception.dispatch.DispatchPublishNotification2Receives;
+import io.moquette.interception.dispatch.DispatchPublishRecall2Receives;
+import io.moquette.interception.dispatch.DispatchPublishTransparent2Receives;
 import io.moquette.persistence.*;
 import io.moquette.persistence.MemorySessionStore.Session;
 import io.moquette.server.ConnectionDescriptorStore;
@@ -35,6 +40,7 @@ import io.moquette.spi.ISessionsStore;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.mqtt.*;
+import jdk.internal.util.xml.impl.Pair;
 import win.liyufan.im.HttpUtils;
 import win.liyufan.im.IMTopic;
 
@@ -43,6 +49,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import win.liyufan.im.Utility;
 
+import java.security.KeyPair;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -62,6 +69,7 @@ public class MessagesPublisher {
     private ExecutorService chatroomScheduler = Executors.newFixedThreadPool(1);
     private boolean schedulerStarted = false;
     private static ExecutorService executorCallback = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    private final HazelcastInstance hazelcastInstance;
 
     public void startChatroomScheduler() {
         schedulerStarted = true;
@@ -103,6 +111,7 @@ public class MessagesPublisher {
         this.m_sessionsStore = sessionsStore;
         this.messageSender = messageSender;
         this.m_messagesStore = messagesStore;
+        this.hazelcastInstance = hz;
         this.startChatroomScheduler();
     }
 
@@ -159,12 +168,103 @@ public class MessagesPublisher {
             Utility.printExecption(LOG, e);
         }
     }
+    public void dispatchPublish2Receivers(String sender, int conversationType, String target, int line, long messageId, Map<String,Long> receivers,
+                                          String pushContent, String pushData, String exceptClientId, int pullType,
+                                          int messageContentType, long serverTime, int mentionType, List<String> mentionTargets, int persistFlag, boolean directing){
 
-    private void publish2Receivers(String sender, int conversationType, String target, int line, long messageId, Collection<String> receivers, String pushContent, String pushData, String exceptClientId, int pullType, int messageContentType, long serverTime, int mentionType, List<String> mentionTargets, int persistFlag, boolean directing) {
+        for (Map.Entry<String,Long> entry : receivers.entrySet()) {
+            Collection<Session> sessions = m_sessionsStore.sessionForUser(entry.getKey());
+
+
+            Collection<String> targetClients = null;
+            if (pullType == ProtoConstants.PullType.Pull_ChatRoom) {
+                targetClients = m_messagesStore.getChatroomMemberClient(entry.getKey());
+            }
+
+            for (Session targetSession : sessions) {
+                //超过7天不活跃的用户忽略
+                if(System.currentTimeMillis() - targetSession.getLastActiveTime() > 7 * 24 * 60 * 60 * 1000) {
+                    continue;
+                }
+
+                if (exceptClientId != null && exceptClientId.equals(targetSession.getClientSession().clientID)) {
+                    continue;
+                }
+
+                if (targetSession.getClientID() == null) {
+                    continue;
+                }
+
+                if (pullType == ProtoConstants.PullType.Pull_ChatRoom && !targetClients.contains(targetSession.getClientID())) {
+                    continue;
+                }
+
+                if (pullType == ProtoConstants.PullType.Pull_ChatRoom) {
+                    if (exceptClientId != null && exceptClientId.equals(targetSession.getClientID())) {
+                        targetSession.refreshLastChatroomActiveTime();
+                    }
+
+                    if (!m_messagesStore.checkChatroomParticipantIdelTime(targetSession)) {
+                        m_messagesStore.handleQuitChatroom(entry.getKey(), targetSession.getClientID(), target);
+                        continue;
+                    }
+                }
+
+
+                if (pullType != ProtoConstants.PullType.Pull_ChatRoom) {
+
+                boolean isConvSilent = false;
+                    if (!entry.getKey().equals(sender)) {
+                        WFCMessage.Conversation conversation;
+                        if (conversationType == ProtoConstants.ConversationType.ConversationType_Private) {
+                            conversation = WFCMessage.Conversation.newBuilder().setType(conversationType).setLine(line).setTarget(sender).build();
+                        } else {
+                            conversation = WFCMessage.Conversation.newBuilder().setType(conversationType).setLine(line).setTarget(target).build();
+                        }
+
+                        if (m_messagesStore.getUserConversationSilent(entry.getKey(), conversation)) {
+                            LOG.info("The conversation {}-{}-{} is slient", conversation.getType(), conversation.getTarget(), conversation.getLine());
+                            isConvSilent = true;
+                        }
+                    }
+
+                    if (!StringUtil.isNullOrEmpty(pushContent) || messageContentType == 400) {
+                        if (!isConvSilent && (persistFlag & 0x02) > 0) {
+                            targetSession.setUnReceivedMsgs(targetSession.getUnReceivedMsgs() + 1);
+                        }
+                    }
+                }
+
+                boolean targetIsActive = this.connectionDescriptors.isConnected(targetSession.getClientSession().clientID);
+                if (targetIsActive) {
+                    WFCMessage.NotifyMessage notifyMessage = WFCMessage.NotifyMessage
+                        .newBuilder()
+                        .setType(pullType)
+                        .setHead(entry.getValue())
+                        .build();
+
+                    ByteBuf payload = Unpooled.buffer();
+                    byte[] byteData = notifyMessage.toByteArray();
+                    payload.ensureWritable(byteData.length).writeBytes(byteData);
+                    MqttPublishMessage publishMsg;
+                    publishMsg = notRetainedPublish(IMTopic.NotifyMessageTopic, MqttQoS.AT_MOST_ONCE, payload);
+
+                    boolean sent = this.messageSender.sendPublish(targetSession.getClientSession(), publishMsg);
+                } else {
+                    LOG.info("the target {} of user {} is not active", targetSession.getClientID(), targetSession.getUsername());
+                }
+            }
+        }
+    }
+    private void publish2Receivers(String sender, int conversationType, String target, int line, long messageId, Collection<String> receivers,
+                                   String pushContent, String pushData, String exceptClientId, int pullType,
+                                   int messageContentType, long serverTime, int mentionType, List<String> mentionTargets, int persistFlag, boolean directing) {
         if (persistFlag == Transparent) {
             publishTransparentMessage2Receivers(messageId, receivers, pullType, exceptClientId);
             return;
         }
+
+        Map<String,Long> notifyUsers = new HashMap<>();
 
         WFCMessage.Message message = null;
         for (String user : receivers) {
@@ -189,12 +289,14 @@ public class MessagesPublisher {
                     }
                 }
             }
+
             long messageSeq;
             if (pullType != ProtoConstants.PullType.Pull_ChatRoom) {
                 messageSeq = m_messagesStore.insertUserMessages(sender, conversationType, target, line, messageContentType, user, messageId, directing);
             } else {
                 messageSeq = m_messagesStore.insertChatroomMessages(user, line, messageId);
             }
+            notifyUsers.put(user,messageSeq);
 
             Collection<Session> sessions = m_sessionsStore.sessionForUser(user);
             String senderName = null;
@@ -394,6 +496,12 @@ public class MessagesPublisher {
 
             }
         }
+
+        if (!notifyUsers.isEmpty())
+            return;
+        DispatchPublish2Receives publish2Receives = new DispatchPublish2Receives(sender,conversationType,target,line,messageId,notifyUsers,
+            pushContent,pushData,exceptClientId,pullType,messageContentType,serverTime,mentionType,mentionTargets,persistFlag,directing);
+        hazelcastInstance.getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH).publish(publish2Receives);
     }
     
     public boolean sendOfflineNotify(String clientId) {
@@ -448,6 +556,9 @@ public class MessagesPublisher {
                     }
                 }
             }
+
+            DispatchPublishTransparent2Receives publish2Receives = new DispatchPublishTransparent2Receives(messageHead,new ArrayList<>(receivers),pullType,exceptClientId);
+            hazelcastInstance.getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH_TRANSPARENT).publish(publish2Receives);
         }
     }
 
@@ -532,6 +643,9 @@ public class MessagesPublisher {
                 }
             }
         }
+
+        DispatchPublishNotification2Receives publish2Receives = new DispatchPublishNotification2Receives(topic, receiver, head, fromUser, pushContent, exceptClientId);
+        hazelcastInstance.getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH_NOTIFICATION).publish(publish2Receives);
     }
 
     public void updateChatroomMembersQueue(String chatroomId, int line, long messageId) {
@@ -554,8 +668,6 @@ public class MessagesPublisher {
 
     public void publishRecall2ReceiversLocal(long messageUid, String operatorId, Collection<String> receivers, String exceptClientId) {
         for (String user : receivers) {
-
-
             Collection<Session> sessions = m_sessionsStore.sessionForUser(user);
             for (Session targetSession : sessions) {
                 if (exceptClientId != null && exceptClientId.equals(targetSession.getClientSession().clientID)) {
@@ -586,6 +698,9 @@ public class MessagesPublisher {
                 }
             }
         }
+
+        DispatchPublishRecall2Receives publish2Receives = new DispatchPublishRecall2Receives(messageUid, operatorId, receivers, exceptClientId);
+        hazelcastInstance.getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH_RECALL).publish(publish2Receives);
     }
 
     public void publishRecall2Receivers(long messageUid, String operatorId, Set<String> receivers, String exceptClientId) {
