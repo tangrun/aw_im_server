@@ -25,8 +25,6 @@ import io.netty.handler.codec.mqtt.MqttPublishMessage;
 import io.netty.handler.codec.mqtt.MqttQoS;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import static io.moquette.spi.impl.ProtocolProcessor.asStoredMessage;
-import static io.netty.handler.codec.mqtt.MqttQoS.AT_MOST_ONCE;
 
 class PersistentQueueMessageSender {
 

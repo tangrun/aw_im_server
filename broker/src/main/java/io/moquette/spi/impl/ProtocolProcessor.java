@@ -34,6 +34,7 @@ import io.moquette.server.netty.NettyUtils;
 import io.moquette.spi.*;
 import io.moquette.spi.IMessagesStore.StoredMessage;
 import io.moquette.spi.impl.security.AES;
+import io.moquette.spi.impl.subscriptions.Topic;
 import io.moquette.spi.security.IAuthenticator;
 import io.moquette.spi.security.IAuthorizator;
 import io.netty.buffer.ByteBuf;
@@ -324,7 +325,7 @@ public class ProtocolProcessor {
                     failedNoSession(channel);
                     return false;
                 }
-                
+
                 if (session != null && session.getUsername().equals(msg.payload().userName())) {
                     pwd = AES.AESDecrypt(pwd, session.getSecret(), true);
                 } else {
@@ -477,10 +478,36 @@ public class ProtocolProcessor {
         return stored;
     }
 
+    /**
+     * Intended usage is only for embedded versions of the broker, where the hosting application
+     * want to use the broker to send a publish message. Inspired by {@link #processPublish} but
+     * with some changes to avoid security check, and the handshake phases for Qos1 and Qos2. It
+     * also doesn't notifyTopicPublished because using internally the owner should already know
+     * where it's publishing.
+     *
+     * @param msg
+     *            the message to publish.
+     * @param clientId
+     *            the clientID
+     */
+    public void internalPublish(MqttPublishMessage msg, final String clientId) {
+        ConnectionDescriptor descriptor = connectionDescriptors.getConnection(clientId);
+        if (descriptor == null){
+            return;
+        }
+
+        final MqttQoS qos = msg.fixedHeader().qosLevel();
+        final Topic topic = new Topic(msg.variableHeader().topicName());
+        LOG.info("Processing internal PUBLISH message. Topic={}, qos={}", topic, qos);
+
+        processPublish(descriptor.getChannel(), msg);
+    }
+
+
     public void processPublish(Channel channel, MqttPublishMessage msg) {
         final MqttQoS qos = msg.fixedHeader().qosLevel();
         final String clientId = NettyUtils.clientID(channel);
-        
+
         LOG.info("Processing PUBLISH message. CId={}, topic={}, messageId={}, qos={}", clientId,
                 msg.variableHeader().topicName(), msg.variableHeader().packetId(), qos);
         switch (qos) {

@@ -22,7 +22,6 @@ import io.moquette.interception.Interceptor;
 import io.moquette.interception.messages.*;
 import io.moquette.server.config.IConfig;
 import io.netty.handler.codec.mqtt.MqttConnectMessage;
-import io.netty.handler.codec.mqtt.MqttPublishMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.util.HashMap;
@@ -90,28 +89,31 @@ final class BrokerInterceptor implements Interceptor {
 
     @Override
     public void notifyClientConnected(final MqttConnectMessage msg) {
+        InterceptConnectMessage message = new InterceptConnectMessage(msg);
         for (final InterceptHandler handler : this.handlers.get(InterceptConnectMessage.class)) {
             LOG.debug("Sending MQTT CONNECT message to interceptor. CId={}, interceptorId={}",
                     msg.payload().clientIdentifier(), handler.getID());
-            executor.execute(() -> handler.onConnect(new InterceptConnectMessage(msg)));
+            executor.execute(() -> handler.onConnect(message));
         }
     }
 
     @Override
     public void notifyClientDisconnected(final String clientID, final String username) {
+        InterceptDisconnectMessage msg = new InterceptDisconnectMessage(clientID, username);
         for (final InterceptHandler handler : this.handlers.get(InterceptDisconnectMessage.class)) {
             LOG.debug("Notifying MQTT client disconnection to interceptor. CId={}, username={}, interceptorId={}",
                 clientID, username, handler.getID());
-            executor.execute(() -> handler.onDisconnect(new InterceptDisconnectMessage(clientID, username)));
+            executor.execute(() -> handler.onDisconnect(msg));
         }
     }
 
     @Override
     public void notifyClientConnectionLost(final String clientID, final String username) {
+        InterceptConnectionLostMessage msg = new InterceptConnectionLostMessage(clientID, username);
         for (final InterceptHandler handler : this.handlers.get(InterceptConnectionLostMessage.class)) {
             LOG.debug("Notifying unexpected MQTT client disconnection to interceptor CId={}, username={}, " +
                 "interceptorId={}", clientID, username, handler.getID());
-            executor.execute(() -> handler.onConnectionLost(new InterceptConnectionLostMessage(clientID, username)));
+            executor.execute(() -> handler.onConnectionLost(msg));
         }
     }
 
@@ -141,6 +143,15 @@ final class BrokerInterceptor implements Interceptor {
             interceptHandler.getID(), interceptedMessageTypes);
         for (Class<?> interceptMessageType : interceptedMessageTypes) {
             this.handlers.get(interceptMessageType).remove(interceptHandler);
+        }
+    }
+
+    @Override
+    public void notifyTopicPublished(InterceptPublishMessage msg) {
+        for (final InterceptHandler handler : this.handlers.get(InterceptPublishMessage.class)) {
+            LOG.debug("Publishing MQTT message to interceptor. CId={}, userName={}, topic={}",
+                msg.getClientId(), msg.getUsername(), msg.getTopic());
+            executor.execute(() -> handler.onPublish(msg));
         }
     }
 

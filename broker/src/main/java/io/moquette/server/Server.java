@@ -29,6 +29,7 @@ import com.xiaoleilu.loServer.ServerSetting;
 import com.xiaoleilu.loServer.action.Action;
 import com.xiaoleilu.loServer.action.admin.AdminAction;
 import io.moquette.BrokerConstants;
+import io.moquette.interception.messages.InterceptPublishMessage;
 import io.moquette.persistence.*;
 import io.moquette.connections.IConnectionsManager;
 import io.moquette.interception.*;
@@ -42,6 +43,7 @@ import io.moquette.spi.security.IAuthenticator;
 import io.moquette.spi.security.IAuthorizator;
 import io.moquette.spi.security.ISslContextCreator;
 import io.moquette.spi.security.Tokenor;
+import io.netty.handler.codec.mqtt.MqttPublishMessage;
 import io.netty.util.ResourceLeakDetector;
 import io.netty.util.internal.StringUtil;
 import win.liyufan.im.DBUtil;
@@ -122,6 +124,8 @@ public class Server {
 
         if (type ==0 || type ==2){
             instance.startServer(config);
+            // 消息拦截 发送到集群中
+            instance.addInterceptHandler(new HazelcastInterceptHandler(instance));
 
             int httpLocalPort = Integer.parseInt(config.getProperty(BrokerConstants.HTTP_LOCAL_PORT));
             int httpAdminPort = Integer.parseInt(config.getProperty(BrokerConstants.HTTP_ADMIN_PORT));
@@ -415,6 +419,7 @@ public class Server {
             LOG.info("Starting Hazelcast instance with default configuration");
             hazelcastInstance = Hazelcast.newHazelcastInstance();
         }
+        new HazelcastListener(this).listenOnHazelCastMsg();
 
         longPort = config.getProperty(BrokerConstants.PORT_PROPERTY_NAME);
         shortPort = config.getProperty(BrokerConstants.HTTP_SERVER_PORT);

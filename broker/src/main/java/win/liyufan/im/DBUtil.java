@@ -234,7 +234,7 @@ public class DBUtil {
             String sql = "delete from " + tableName + " where _mid <= " + mid;
             statement = connection.prepareStatement(sql);
             int count = statement.executeUpdate();
-            LOG.info("Delete history message {} rows", count);
+            LOG.info("Delete history message {} rows, {}", count,tableName);
         } catch (Exception e) {
             e.printStackTrace();
             Utility.printExecption(LOG, e, RDBS_Exception);

@@ -19,32 +19,44 @@ package io.moquette.interception.messages;
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.mqtt.MqttPublishMessage;
 
-public class InterceptPublishMessage extends InterceptAbstractMessage {
+import java.io.Serializable;
 
-    private final MqttPublishMessage msg;
-    private final String clientID;
+import static io.moquette.spi.impl.Utils.readBytesAndRewind;
+
+public class InterceptPublishMessage implements InterceptMessage , Serializable {
+
     private final String username;
+    private final String clientId;
+    private final int qos;
+    private final byte[] payload;
+    private final String topic;
 
     public InterceptPublishMessage(MqttPublishMessage msg, String clientID, String username) {
-        super(msg);
-        this.msg = msg;
-        this.clientID = clientID;
         this.username = username;
+        this.clientId = clientID;
+        this.topic = msg.variableHeader().topicName();
+        this.qos = msg.fixedHeader().qosLevel().ordinal();
+        this.payload = readBytesAndRewind(msg.payload());
     }
 
-    public String getTopicName() {
-        return msg.variableHeader().topicName();
-    }
-
-    public ByteBuf getPayload() {
-        return msg.payload();
-    }
-
-    public String getClientID() {
-        return clientID;
-    }
 
     public String getUsername() {
         return username;
+    }
+
+    public String getClientId() {
+        return clientId;
+    }
+
+    public int getQos() {
+        return qos;
+    }
+
+    public byte[] getPayload() {
+        return payload;
+    }
+
+    public String getTopic() {
+        return topic;
     }
 }

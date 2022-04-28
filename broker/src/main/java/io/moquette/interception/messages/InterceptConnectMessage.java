@@ -18,68 +18,40 @@ package io.moquette.interception.messages;
 
 import io.netty.handler.codec.mqtt.MqttConnectMessage;
 
-public class InterceptConnectMessage extends InterceptAbstractMessage {
+public class InterceptConnectMessage implements InterceptMessage {
 
-    private final MqttConnectMessage msg;
+    private final String clientID;
+    private final String username;
+    private final byte[] password;
+    private final boolean clearSession;
+
+    public InterceptConnectMessage(String clientID, String username, byte[] password, boolean clearSession) {
+        this.clientID = clientID;
+        this.username = username;
+        this.password = password;
+        this.clearSession = clearSession;
+    }
 
     public InterceptConnectMessage(MqttConnectMessage msg) {
-        super(msg);
-        this.msg = msg;
+        this.clientID = msg.payload().clientIdentifier();
+        this.username = msg.payload().userName();
+        this.password = msg.payload().password();
+        this.clearSession =msg.variableHeader().isCleanSession();
     }
 
     public String getClientID() {
-        return msg.payload().clientIdentifier();
-    }
-
-    public boolean isCleanSession() {
-        return msg.variableHeader().isCleanSession();
-    }
-
-    public int getKeepAlive() {
-        return msg.variableHeader().keepAliveTimeSeconds();
-    }
-
-    public boolean isPasswordFlag() {
-        return msg.variableHeader().hasPassword();
-    }
-
-    public byte getProtocolVersion() {
-        return (byte) msg.variableHeader().version();
-    }
-
-    public String getProtocolName() {
-        return msg.variableHeader().name();
-    }
-
-    public boolean isUserFlag() {
-        return msg.variableHeader().hasUserName();
-    }
-
-    public boolean isWillFlag() {
-        return msg.variableHeader().isWillFlag();
-    }
-
-    public byte getWillQos() {
-        return (byte) msg.variableHeader().willQos();
-    }
-
-    public boolean isWillRetain() {
-        return msg.variableHeader().isWillRetain();
+        return clientID;
     }
 
     public String getUsername() {
-        return msg.payload().userName();
+        return username;
     }
 
     public byte[] getPassword() {
-        return msg.payload().password();
+        return password;
     }
 
-    public String getWillTopic() {
-        return msg.payload().willTopic();
-    }
-
-    public byte[] getWillMessage() {
-        return msg.payload().willMessage().getBytes();
+    public boolean isClearSession() {
+        return clearSession;
     }
 }

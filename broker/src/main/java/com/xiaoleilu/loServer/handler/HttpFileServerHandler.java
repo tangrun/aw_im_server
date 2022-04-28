@@ -318,11 +318,11 @@ public class HttpFileServerHandler extends SimpleChannelInboundHandler<FullHttpR
     }
 
     private void writeResponseSuccess(Channel channel, String msg) {
-        writeResponse(channel, OK, msg, false);
+        writeResponse(channel, OK, msg, true);
     }
 
     private void writeResponseError(Channel channel, HttpResponseStatus status, boolean forceClose) {
-        writeResponse(channel, status, "Failure: " + status + "\r\n", forceClose);
+        writeResponse(channel, status, "Failure: " + status + "\r\n", true);
     }
 
     private void writeResponse(Channel channel, HttpResponseStatus status, String msg, boolean forceClose) {

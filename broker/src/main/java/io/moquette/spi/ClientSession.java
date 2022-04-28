@@ -40,6 +40,9 @@ import java.util.Set;
  */
 public class ClientSession {
 
+    /**
+     * B->C
+     */
     class OutboundFlightZone {
 
         /**
@@ -62,6 +65,10 @@ public class ClientSession {
         }
     }
 
+    /**
+     *
+     * C->B
+     */
     class InboundFlightZone {
 
         public IMessagesStore.StoredMessage lookup(int messageID) {

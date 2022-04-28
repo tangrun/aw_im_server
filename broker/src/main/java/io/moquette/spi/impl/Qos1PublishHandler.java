@@ -31,6 +31,7 @@ import cn.wildfirechat.server.ThreadPoolExecutorWrapper;
 import com.google.gson.Gson;
 import com.xiaoleilu.loServer.action.ClassUtil;
 import cn.wildfirechat.pojos.OutputCheckUserOnline;
+import io.moquette.interception.messages.InterceptPublishMessage;
 import io.moquette.persistence.ServerAPIHelper;
 import io.moquette.imhandler.Handler;
 import io.moquette.imhandler.IMHandler;
@@ -58,7 +59,6 @@ import io.netty.handler.codec.mqtt.MqttMessageType;
 import io.netty.handler.codec.mqtt.MqttPublishMessage;
 import cn.wildfirechat.common.ErrorCode;
 import win.liyufan.im.IMTopic;
-import win.liyufan.im.RateLimiter;
 import win.liyufan.im.Utility;
 import win.liyufan.im.extended.mqttmessage.ModifiedMqttPubAckMessage;
 
@@ -70,6 +70,7 @@ public class Qos1PublishHandler extends QosPublishHandler {
     private final MessagesPublisher publisher;
     private final ISessionsStore m_sessionStore;
     private final ThreadPoolExecutorWrapper m_imBusinessExecutor;
+    private final BrokerInterceptor m_interceptor;
 
     private HashMap<String, IMHandler> m_imHandlers = new HashMap<>();
 
@@ -82,6 +83,7 @@ public class Qos1PublishHandler extends QosPublishHandler {
         this.publisher = messagesPublisher;
         this.m_sessionStore = sessionStore;
         this.m_imBusinessExecutor = executorService;
+        this.m_interceptor = interceptor;
         IMHandler.init(m_messagesStore, m_sessionStore, publisher, m_imBusinessExecutor, server);
         registerAllAction();
     }
@@ -245,10 +247,12 @@ public class Qos1PublishHandler extends QosPublishHandler {
             sendPubAck(clientID, messageID, ackPayload, ERROR_CODE_INVALID_DATA);
             return;
         }
-        
+
         MemorySessionStore.Session session = m_sessionStore.getSession(clientID);
         payloadContent = AES.AESDecrypt(payloadContent, session.getSecret(), true);
         imHandler(clientID, username, imtopic, payloadContent, (errorCode, ackPayload) -> sendPubAck(clientID, messageID, ackPayload, errorCode), ProtoConstants.RequestSourceType.Request_From_User);
+
+        m_interceptor.notifyTopicPublished(new InterceptPublishMessage(msg, clientID, username));
     }
 
     private void sendPubAck(String clientId, int messageID, ByteBuf payload, ErrorCode errorCode) {
