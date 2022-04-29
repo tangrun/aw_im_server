@@ -168,94 +168,47 @@ public class MessagesPublisher {
             Utility.printExecption(LOG, e);
         }
     }
-    public void dispatchPublish2Receivers(String sender, int conversationType, String target, int line, long messageId, Map<String,Long> receivers,
-                                          String pushContent, String pushData, String exceptClientId, int pullType,
-                                          int messageContentType, long serverTime, int mentionType, List<String> mentionTargets, int persistFlag, boolean directing){
 
-        for (Map.Entry<String,Long> entry : receivers.entrySet()) {
-            Collection<Session> sessions = m_sessionsStore.sessionForUser(entry.getKey());
-
-
-            Collection<String> targetClients = null;
-            if (pullType == ProtoConstants.PullType.Pull_ChatRoom) {
-                targetClients = m_messagesStore.getChatroomMemberClient(entry.getKey());
-            }
-
-            for (Session targetSession : sessions) {
-                //超过7天不活跃的用户忽略
-                if(System.currentTimeMillis() - targetSession.getLastActiveTime() > 7 * 24 * 60 * 60 * 1000) {
-                    continue;
-                }
-
-                if (exceptClientId != null && exceptClientId.equals(targetSession.getClientSession().clientID)) {
-                    continue;
-                }
-
-                if (targetSession.getClientID() == null) {
-                    continue;
-                }
-
-                if (pullType == ProtoConstants.PullType.Pull_ChatRoom && !targetClients.contains(targetSession.getClientID())) {
-                    continue;
-                }
-
-                if (pullType == ProtoConstants.PullType.Pull_ChatRoom) {
-                    if (exceptClientId != null && exceptClientId.equals(targetSession.getClientID())) {
-                        targetSession.refreshLastChatroomActiveTime();
-                    }
-
-                    if (!m_messagesStore.checkChatroomParticipantIdelTime(targetSession)) {
-                        m_messagesStore.handleQuitChatroom(entry.getKey(), targetSession.getClientID(), target);
-                        continue;
-                    }
-                }
-
-
-                if (pullType != ProtoConstants.PullType.Pull_ChatRoom) {
-
-                boolean isConvSilent = false;
-                    if (!entry.getKey().equals(sender)) {
-                        WFCMessage.Conversation conversation;
-                        if (conversationType == ProtoConstants.ConversationType.ConversationType_Private) {
-                            conversation = WFCMessage.Conversation.newBuilder().setType(conversationType).setLine(line).setTarget(sender).build();
-                        } else {
-                            conversation = WFCMessage.Conversation.newBuilder().setType(conversationType).setLine(line).setTarget(target).build();
-                        }
-
-                        if (m_messagesStore.getUserConversationSilent(entry.getKey(), conversation)) {
-                            LOG.info("The conversation {}-{}-{} is slient", conversation.getType(), conversation.getTarget(), conversation.getLine());
-                            isConvSilent = true;
-                        }
-                    }
-
-                    if (!StringUtil.isNullOrEmpty(pushContent) || messageContentType == 400) {
-                        if (!isConvSilent && (persistFlag & 0x02) > 0) {
-                            targetSession.setUnReceivedMsgs(targetSession.getUnReceivedMsgs() + 1);
-                        }
-                    }
-                }
-
-                boolean targetIsActive = this.connectionDescriptors.isConnected(targetSession.getClientSession().clientID);
-                if (targetIsActive) {
-                    WFCMessage.NotifyMessage notifyMessage = WFCMessage.NotifyMessage
-                        .newBuilder()
-                        .setType(pullType)
-                        .setHead(entry.getValue())
-                        .build();
-
-                    ByteBuf payload = Unpooled.buffer();
-                    byte[] byteData = notifyMessage.toByteArray();
-                    payload.ensureWritable(byteData.length).writeBytes(byteData);
-                    MqttPublishMessage publishMsg;
-                    publishMsg = notRetainedPublish(IMTopic.NotifyMessageTopic, MqttQoS.AT_MOST_ONCE, payload);
-
-                    boolean sent = this.messageSender.sendPublish(targetSession.getClientSession(), publishMsg);
-                } else {
-                    LOG.info("the target {} of user {} is not active", targetSession.getClientID(), targetSession.getUsername());
-                }
-            }
-        }
+    public void dispatchPublishRecall2ReceiversLocal(DispatchPublishRecall2Receives publish2Receives){
+        publishRecall2ReceiversLocal(publish2Receives.getMessageUid(), publish2Receives.getOperatorId(), publish2Receives.getReceivers(),publish2Receives.getExceptClientId() );
     }
+    public void dispatchPublishTransparentMessage2Receivers(DispatchPublishTransparent2Receives publish2Receives){
+        publishTransparentMessage2Receivers(
+            publish2Receives.getMessageHead(),
+            publish2Receives.getReceivers(),
+            publish2Receives.getPullType(),
+            publish2Receives.getExceptClientId()
+        );
+    }
+    public void dispatchPublishNotification(DispatchPublishNotification2Receives publish2Receives){
+        publishNotification(publish2Receives.getTopic(),
+            publish2Receives.getReceiver(),
+            publish2Receives.getHead(),
+            publish2Receives.getFromUser(),
+            publish2Receives.getPushContent(),
+            publish2Receives.getExceptClientId());
+    }
+
+    public void dispatchPublish2Receivers(DispatchPublish2Receives publish2Receives){
+        publish2Receivers(
+            publish2Receives.getSender(),
+            publish2Receives.getConversationType(),
+            publish2Receives.getTarget(),
+            publish2Receives.getLine(),
+            publish2Receives.getMessageId(),
+            publish2Receives.getReceivers(),
+            publish2Receives.getPushContent(),
+            publish2Receives.getPushData(),
+            publish2Receives.getExceptClientId(),
+            publish2Receives.getPullType(),
+            publish2Receives.getMessageContentType(),
+            publish2Receives.getServerTime(),
+            publish2Receives.getMentionType(),
+            publish2Receives.getMentionTargets(),
+            publish2Receives.getPersistFlag(),
+            publish2Receives.isDirecting());
+    }
+
     private void publish2Receivers(String sender, int conversationType, String target, int line, long messageId, Collection<String> receivers,
                                    String pushContent, String pushData, String exceptClientId, int pullType,
                                    int messageContentType, long serverTime, int mentionType, List<String> mentionTargets, int persistFlag, boolean directing) {
@@ -263,8 +216,6 @@ public class MessagesPublisher {
             publishTransparentMessage2Receivers(messageId, receivers, pullType, exceptClientId);
             return;
         }
-
-        Map<String,Long> notifyUsers = new HashMap<>();
 
         WFCMessage.Message message = null;
         for (String user : receivers) {
@@ -296,7 +247,6 @@ public class MessagesPublisher {
             } else {
                 messageSeq = m_messagesStore.insertChatroomMessages(user, line, messageId);
             }
-            notifyUsers.put(user,messageSeq);
 
             Collection<Session> sessions = m_sessionsStore.sessionForUser(user);
             String senderName = null;
@@ -497,13 +447,11 @@ public class MessagesPublisher {
             }
         }
 
-        if (!notifyUsers.isEmpty())
-            return;
-        DispatchPublish2Receives publish2Receives = new DispatchPublish2Receives(sender,conversationType,target,line,messageId,notifyUsers,
+        DispatchPublish2Receives publish2Receives = new DispatchPublish2Receives(sender,conversationType,target,line,messageId,new ArrayList<>(receivers),
             pushContent,pushData,exceptClientId,pullType,messageContentType,serverTime,mentionType,mentionTargets,persistFlag,directing);
         hazelcastInstance.getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH).publish(publish2Receives);
     }
-    
+
     public boolean sendOfflineNotify(String clientId) {
         boolean targetIsActive = this.connectionDescriptors.isConnected(clientId);
         if (targetIsActive) {

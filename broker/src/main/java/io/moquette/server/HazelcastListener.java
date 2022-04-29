@@ -6,6 +6,9 @@ import com.hazelcast.core.MessageListener;
 import io.moquette.imhandler.IMHandler;
 import io.moquette.interception.HazelcastInterceptHandler;
 import io.moquette.interception.dispatch.DispatchPublish2Receives;
+import io.moquette.interception.dispatch.DispatchPublishNotification2Receives;
+import io.moquette.interception.dispatch.DispatchPublishRecall2Receives;
+import io.moquette.interception.dispatch.DispatchPublishTransparent2Receives;
 import io.moquette.interception.messages.*;
 import io.moquette.spi.ClientSession;
 import io.moquette.spi.impl.MessagesPublisher;
@@ -47,19 +50,64 @@ public class HazelcastListener {
                     try {
                         if (!msg.getPublishingMember().equals(server.getHazelcastInstance().getCluster().getLocalMember())) {
                             DispatchPublish2Receives hzMsg = msg.getMessageObject();
-                            publisher.dispatchPublish2Receivers();
+                            LOG.info("handle topic TOPIC_PUBLISH, sender={}, to={}, msgId={}",hzMsg.getSender(),hzMsg.getReceivers(),hzMsg.getMessageId());
+                            publisher.dispatchPublish2Receivers(hzMsg);
                         }
                     } catch (Exception ex) {
-                        LOG.error("error handle hazelcast connect event", ex);
+                        LOG.error("error handle hazelcast topic event TOPIC_PUBLISH", ex);
                     }
                 }
             });
-        hz.<InterceptPublishMessage>getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH_TRANSPARENT)
-            .addMessageListener(this::onPublishMessage);
-        hz.<InterceptPublishMessage>getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH_NOTIFICATION)
-            .addMessageListener(this::onPublishMessage);
-        hz.<InterceptPublishMessage>getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH_RECALL)
-            .addMessageListener(this::onPublishMessage);
+        hz.<DispatchPublishTransparent2Receives>getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH_TRANSPARENT)
+            .addMessageListener(new MessageListener<DispatchPublishTransparent2Receives>() {
+                @Override
+                public void onMessage(Message<DispatchPublishTransparent2Receives> msg) {
+                    try {
+                        if (!msg.getPublishingMember().equals(server.getHazelcastInstance().getCluster().getLocalMember())) {
+                            DispatchPublishTransparent2Receives hzMsg = msg.getMessageObject();
+                            LOG.info("handle topic TOPIC_PUBLISH_TRANSPARENT, pulltype={}, to={}, head={}, exClientId={}",
+                                hzMsg.getPullType(),hzMsg.getReceivers(),hzMsg.getMessageHead(),hzMsg.getExceptClientId());
+                            publisher.dispatchPublishTransparentMessage2Receivers(hzMsg);
+                        }
+                    } catch (Exception ex) {
+                        LOG.error("error handle hazelcast topic event TOPIC_PUBLISH_TRANSPARENT", ex);
+                    }
+                }
+            });
+        hz.<DispatchPublishNotification2Receives>getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH_NOTIFICATION)
+            .addMessageListener(new MessageListener<DispatchPublishNotification2Receives>() {
+                @Override
+                public void onMessage(Message<DispatchPublishNotification2Receives> msg) {
+                    LOG.info("handle topic TOPIC_PUBLISH_RECALL");
+                    try {
+                        if (!msg.getPublishingMember().equals(server.getHazelcastInstance().getCluster().getLocalMember())) {
+                            DispatchPublishNotification2Receives hzMsg = msg.getMessageObject();
+                            LOG.info("handle topic TOPIC_PUBLISH_NOTIFICATION, from={}, to={}, head={}, exClientId={}, topic={}, pushContent={}",
+                                hzMsg.getFromUser(),hzMsg.getReceiver(),hzMsg.getHead(),hzMsg.getExceptClientId(),hzMsg.getTopic(),hzMsg.getPushContent());
+                            publisher.dispatchPublishNotification(hzMsg);
+                        }
+                    } catch (Exception ex) {
+                        LOG.error("error handle hazelcast topic event TOPIC_PUBLISH_NOTIFICATION", ex);
+                    }
+                }
+            });
+        hz.<DispatchPublishRecall2Receives>getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH_RECALL)
+            .addMessageListener(new MessageListener<DispatchPublishRecall2Receives>() {
+                @Override
+                public void onMessage(Message<DispatchPublishRecall2Receives> msg) {
+                    LOG.info("handle topic TOPIC_PUBLISH_RECALL");
+                    try {
+                        if (!msg.getPublishingMember().equals(server.getHazelcastInstance().getCluster().getLocalMember())) {
+                            DispatchPublishRecall2Receives hzMsg = msg.getMessageObject();
+                            LOG.info("handle topic TOPIC_PUBLISH_RECALL, from={}, to={}, msgUid={}, exClientId={}",
+                                hzMsg.getOperatorId(),hzMsg.getReceivers(),hzMsg.getMessageUid(),hzMsg.getExceptClientId());
+                            publisher.dispatchPublishRecall2ReceiversLocal(hzMsg);
+                        }
+                    } catch (Exception ex) {
+                        LOG.error("error handle hazelcast topic connect event TOPIC_PUBLISH_RECALL", ex);
+                    }
+                }
+            });
 
     }
 
@@ -87,8 +135,6 @@ public class HazelcastListener {
                 LOG.info("{} connect from hazelcast for client: {}", hzMsg.getUsername(), hzMsg.getClientID());
 
                 ClientSession clientSession = server.getStore().sessionsStore().sessionForClient(hzMsg.getClientID());
-                if (hzMsg.)
-                    clientSession.cleanSession();
 
                 server.getStore().sessionsStore().loadUserSession(hzMsg.getUsername(), hzMsg.getClientID());
             }

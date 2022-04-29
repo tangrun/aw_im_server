@@ -11,7 +11,8 @@ public class DispatchPublish2Receives implements Serializable {
     String       target;
     int          line;
     long         messageId;
-    Map<String,Long> receivers;
+//    Map<String,Long> receivers;
+    List<String> receivers;
     String       pushContent;
     String       pushData;
     String       exceptClientId;
@@ -23,7 +24,9 @@ public class DispatchPublish2Receives implements Serializable {
     int          persistFlag;
     boolean      directing;
 
-    public DispatchPublish2Receives(String sender, int conversationType, String target, int line, long messageId, Map<String,Long> receivers,
+    public DispatchPublish2Receives(String sender, int conversationType, String target, int line, long messageId,
+//                                    Map<String,Long> receivers,
+                                    List<String> receivers,
                                     String pushContent, String pushData, String exceptClientId, int pullType,
                                     int messageContentType, long serverTime, int mentionType, List<String> mentionTargets, int persistFlag, boolean directing) {
         this.sender = sender;
@@ -84,11 +87,11 @@ public class DispatchPublish2Receives implements Serializable {
         this.messageId = messageId;
     }
 
-    public Map<String,Long> getReceivers() {
+    public List<String> getReceivers() {
         return receivers;
     }
 
-    public void setReceivers(Map<String,Long> receivers) {
+    public void setReceivers(List<String> receivers) {
         this.receivers = receivers;
     }
 
