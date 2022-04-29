@@ -63,3 +63,6 @@ git.properties
 wildfirechat.license
 broker/logs
 .svn
+/run_file/logs/
+/run_node_1/logs/
+/run_node_2/logs/

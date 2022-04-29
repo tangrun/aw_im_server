@@ -905,7 +905,7 @@ public class MemoryMessagesStore implements IMessagesStore {
         } finally {
             mWriteLock.unlock();
         }
-
+        LOG.error("=============={} ",messageSeq );
         databaseStore.persistUserMessage(user, messageId, messageSeq, conversationType, target, line, directing, messageContentType);
         return messageSeq;
     }

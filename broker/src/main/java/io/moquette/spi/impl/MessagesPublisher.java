@@ -22,6 +22,7 @@ import cn.wildfirechat.proto.WFCMessage;
 import cn.wildfirechat.push.PushServer;
 import com.google.gson.Gson;
 import com.hazelcast.core.HazelcastInstance;
+import com.hazelcast.core.ITopic;
 import com.hazelcast.util.StringUtil;
 import cn.wildfirechat.pojos.OutputNotifyChannelSubscribeStatus;
 import cn.wildfirechat.pojos.SendMessageData;
@@ -78,7 +79,7 @@ public class MessagesPublisher {
                 try {
                     if (chatRoomHeaders.size() < 100) {
                         Thread.sleep(500);
-                    } else if(chatRoomHeaders.size() < 500) {
+                    } else if (chatRoomHeaders.size() < 500) {
                         Thread.sleep(100);
                     }
                 } catch (InterruptedException e) {
@@ -120,7 +121,7 @@ public class MessagesPublisher {
     }
 
     private static MqttPublishMessage notRetainedPublishWithMessageId(String topic, MqttQoS qos, ByteBuf message,
-            int messageId) {
+                                                                      int messageId) {
         MqttFixedHeader fixedHeader = new MqttFixedHeader(MqttMessageType.PUBLISH, false, qos, false, 0);
         MqttPublishVariableHeader varHeader = new MqttPublishVariableHeader(topic, messageId);
         return new MqttPublishMessage(fixedHeader, varHeader, message);
@@ -138,7 +139,7 @@ public class MessagesPublisher {
                 LOG.warn("session for {} not exit", clientId);
                 return;
             }
-            if(!session.getUsername().equals(user)) {
+            if (!session.getUsername().equals(user)) {
                 LOG.warn("session {} user is not {}", clientId, user);
                 return;
             }
@@ -169,27 +170,29 @@ public class MessagesPublisher {
         }
     }
 
-    public void dispatchPublishRecall2ReceiversLocal(DispatchPublishRecall2Receives publish2Receives){
-        publishRecall2ReceiversLocal(publish2Receives.getMessageUid(), publish2Receives.getOperatorId(), publish2Receives.getReceivers(),publish2Receives.getExceptClientId() );
+    public void dispatchPublishRecall2ReceiversLocal(DispatchPublishRecall2Receives publish2Receives) {
+        publishRecall2ReceiversLocal(publish2Receives.getMessageUid(), publish2Receives.getOperatorId(), publish2Receives.getReceivers(), publish2Receives.getExceptClientId(), false);
     }
-    public void dispatchPublishTransparentMessage2Receivers(DispatchPublishTransparent2Receives publish2Receives){
+
+    public void dispatchPublishTransparentMessage2Receivers(DispatchPublishTransparent2Receives publish2Receives) {
         publishTransparentMessage2Receivers(
             publish2Receives.getMessageHead(),
             publish2Receives.getReceivers(),
             publish2Receives.getPullType(),
-            publish2Receives.getExceptClientId()
+            publish2Receives.getExceptClientId(), false
         );
     }
-    public void dispatchPublishNotification(DispatchPublishNotification2Receives publish2Receives){
+
+    public void dispatchPublishNotification(DispatchPublishNotification2Receives publish2Receives) {
         publishNotification(publish2Receives.getTopic(),
             publish2Receives.getReceiver(),
             publish2Receives.getHead(),
             publish2Receives.getFromUser(),
             publish2Receives.getPushContent(),
-            publish2Receives.getExceptClientId());
+            publish2Receives.getExceptClientId(), false);
     }
 
-    public void dispatchPublish2Receivers(DispatchPublish2Receives publish2Receives){
+    public void dispatchPublish2Receivers(DispatchPublish2Receives publish2Receives) {
         publish2Receivers(
             publish2Receives.getSender(),
             publish2Receives.getConversationType(),
@@ -206,14 +209,14 @@ public class MessagesPublisher {
             publish2Receives.getMentionType(),
             publish2Receives.getMentionTargets(),
             publish2Receives.getPersistFlag(),
-            publish2Receives.isDirecting());
+            publish2Receives.isDirecting(), false);
     }
 
     private void publish2Receivers(String sender, int conversationType, String target, int line, long messageId, Collection<String> receivers,
                                    String pushContent, String pushData, String exceptClientId, int pullType,
-                                   int messageContentType, long serverTime, int mentionType, List<String> mentionTargets, int persistFlag, boolean directing) {
+                                   int messageContentType, long serverTime, int mentionType, List<String> mentionTargets, int persistFlag, boolean directing, boolean dispatch) {
         if (persistFlag == Transparent) {
-            publishTransparentMessage2Receivers(messageId, receivers, pullType, exceptClientId);
+            publishTransparentMessage2Receivers(messageId, receivers, pullType, exceptClientId, dispatch);
             return;
         }
 
@@ -277,7 +280,7 @@ public class MessagesPublisher {
 
             for (Session targetSession : sessions) {
                 //超过7天不活跃的用户忽略
-                if(System.currentTimeMillis() - targetSession.getLastActiveTime() > 7 * 24 * 60 * 60 * 1000) {
+                if (System.currentTimeMillis() - targetSession.getLastActiveTime() > 7 * 24 * 60 * 60 * 1000) {
                     continue;
                 }
 
@@ -388,7 +391,7 @@ public class MessagesPublisher {
                     if (mentionType == 2) {
                         curMentionType = 2;
                         isConvSilent = false;
-                    } else if (mentionType == 1){
+                    } else if (mentionType == 1) {
                         if (mentionTargets != null && mentionTargets.contains(user)) {
                             curMentionType = 1;
                             isConvSilent = false;
@@ -416,19 +419,19 @@ public class MessagesPublisher {
                         continue;
                     }
 
-                    if(isVoip && isVoipSilent) {
+                    if (isVoip && isVoipSilent) {
                         LOG.info("voip silent of user");
                         continue;
                     }
 
-                    if(isNoDisturb) {
+                    if (isNoDisturb) {
                         LOG.info("no disturb of user");
                         continue;
                     }
 
                     boolean isHiddenDetail = m_messagesStore.getUserPushHiddenDetail(user);
 
-                    if(!nameLoaded) {
+                    if (!nameLoaded) {
                         senderName = getUserDisplayName(sender, conversationType == ProtoConstants.ConversationType.ConversationType_Group ? target : null);
                         targetName = getTargetName(target, conversationType);
                         nameLoaded = true;
@@ -447,9 +450,13 @@ public class MessagesPublisher {
             }
         }
 
-        DispatchPublish2Receives publish2Receives = new DispatchPublish2Receives(sender,conversationType,target,line,messageId,new ArrayList<>(receivers),
-            pushContent,pushData,exceptClientId,pullType,messageContentType,serverTime,mentionType,mentionTargets,persistFlag,directing);
-        hazelcastInstance.getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH).publish(publish2Receives);
+        if (dispatch) {
+            DispatchPublish2Receives hzMsg = new DispatchPublish2Receives(sender, conversationType, target, line, messageId, new ArrayList<>(receivers),
+                pushContent, pushData, exceptClientId, pullType, messageContentType, serverTime, mentionType, new ArrayList<>(mentionTargets), persistFlag, directing);
+            LOG.info("dispatch topic TOPIC_PUBLISH, sender={}, to={}, msgId={}", hzMsg.getSender(), hzMsg.getReceivers(), hzMsg.getMessageId());
+            ITopic<DispatchPublish2Receives> reliableTopic = hazelcastInstance.getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH);
+            reliableTopic.publish(hzMsg);
+        }
     }
 
     public boolean sendOfflineNotify(String clientId) {
@@ -471,7 +478,7 @@ public class MessagesPublisher {
         return false;
     }
 
-    private void publishTransparentMessage2Receivers(long messageHead, Collection<String> receivers, int pullType, String exceptClientId) {
+    private void publishTransparentMessage2Receivers(long messageHead, Collection<String> receivers, int pullType, String exceptClientId, boolean dispatch) {
         WFCMessage.Message message = m_messagesStore.getMessage(messageHead);
 
         if (message != null) {
@@ -479,7 +486,7 @@ public class MessagesPublisher {
                 Collection<Session> sessions = m_sessionsStore.sessionForUser(user);
 
                 for (Session targetSession : sessions) {
-                    if(System.currentTimeMillis() - targetSession.getLastActiveTime() > 60 * 60 * 1000) {
+                    if (System.currentTimeMillis() - targetSession.getLastActiveTime() > 60 * 60 * 1000) {
                         continue;
                     }
 
@@ -505,15 +512,18 @@ public class MessagesPublisher {
                 }
             }
 
-            DispatchPublishTransparent2Receives publish2Receives = new DispatchPublishTransparent2Receives(messageHead,new ArrayList<>(receivers),pullType,exceptClientId);
-            hazelcastInstance.getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH_TRANSPARENT).publish(publish2Receives);
+            if (dispatch) {
+                DispatchPublishTransparent2Receives hzMsg = new DispatchPublishTransparent2Receives(messageHead, new ArrayList<>(receivers), pullType, exceptClientId);
+                LOG.info("dispatch topic TOPIC_PUBLISH_TRANSPARENT, pulltype={}, to={}, head={}, exClientId={}", hzMsg.getPullType(), hzMsg.getReceivers(), hzMsg.getMessageHead(), hzMsg.getExceptClientId());
+                hazelcastInstance.getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH_TRANSPARENT).publish(hzMsg);
+            }
         }
     }
 
     String getUserDisplayName(String userId, String groupId) {
         WFCMessage.User user = m_messagesStore.getUserInfo(userId);
         String userName = null;
-        if(user != null) {
+        if (user != null) {
             userName = user.getDisplayName();
         }
         if (!StringUtil.isNullOrEmpty(groupId)) {
@@ -528,12 +538,12 @@ public class MessagesPublisher {
     String getTargetName(String targetId, int cnvType) {
         if (cnvType == ProtoConstants.ConversationType.ConversationType_Private) {
             return getUserDisplayName(targetId, null);
-        } else if(cnvType == ProtoConstants.ConversationType.ConversationType_Group) {
+        } else if (cnvType == ProtoConstants.ConversationType.ConversationType_Group) {
             WFCMessage.GroupInfo group = m_messagesStore.getGroupInfo(targetId);
-            if(group != null) {
+            if (group != null) {
                 return group.getName();
             }
-        } else if(cnvType == ProtoConstants.ConversationType.ConversationType_Channel) {
+        } else if (cnvType == ProtoConstants.ConversationType.ConversationType_Channel) {
             WFCMessage.ChannelInfo channelInfo = m_messagesStore.getChannelInfo(targetId);
             if (channelInfo != null) {
                 return channelInfo.getName();
@@ -553,11 +563,16 @@ public class MessagesPublisher {
     public void publishNotification(String topic, String receiver, long head, String fromUser, String pushContent) {
         publishNotification(topic, receiver, head, fromUser, pushContent, null);
     }
+
     public void publishNotification(String topic, String receiver, long head, String fromUser, String pushContent, String exceptClientId) {
+        publishNotification(topic, receiver, head, fromUser, pushContent, exceptClientId, true);
+    }
+
+    private void publishNotification(String topic, String receiver, long head, String fromUser, String pushContent, String exceptClientId, boolean dispatch) {
         Collection<Session> sessions = m_sessionsStore.sessionForUser(receiver);
         String fromUserName = null;
         for (Session targetSession : sessions) {
-            if(targetSession.getClientID().equals(exceptClientId)) {
+            if (targetSession.getClientID().equals(exceptClientId)) {
                 continue;
             }
 
@@ -592,15 +607,19 @@ public class MessagesPublisher {
             }
         }
 
-        DispatchPublishNotification2Receives publish2Receives = new DispatchPublishNotification2Receives(topic, receiver, head, fromUser, pushContent, exceptClientId);
-        hazelcastInstance.getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH_NOTIFICATION).publish(publish2Receives);
+        if (dispatch) {
+            DispatchPublishNotification2Receives hzMsg = new DispatchPublishNotification2Receives(topic, receiver, head, fromUser, pushContent, exceptClientId);
+            LOG.info("handle topic TOPIC_PUBLISH_NOTIFICATION, from={}, to={}, head={}, exClientId={}, topic={}, pushContent={}",
+                hzMsg.getFromUser(), hzMsg.getReceiver(), hzMsg.getHead(), hzMsg.getExceptClientId(), hzMsg.getTopic(), hzMsg.getPushContent());
+            hazelcastInstance.getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH_NOTIFICATION).publish(hzMsg);
+        }
     }
 
     public void updateChatroomMembersQueue(String chatroomId, int line, long messageId) {
         final long messageSeq = m_messagesStore.insertChatroomMessages(chatroomId, line, messageId);
         Collection<UserClientEntry> members = m_messagesStore.getChatroomMembers(chatroomId);
         for (UserClientEntry member : members
-             ) {
+        ) {
             chatRoomHeaders.compute(member, new BiFunction<UserClientEntry, Long, Long>() {
                 @Override
                 public Long apply(UserClientEntry s, Long aLong) {
@@ -615,6 +634,10 @@ public class MessagesPublisher {
     }
 
     public void publishRecall2ReceiversLocal(long messageUid, String operatorId, Collection<String> receivers, String exceptClientId) {
+        publishRecall2ReceiversLocal(messageUid, operatorId, receivers, exceptClientId, true);
+    }
+
+    private void publishRecall2ReceiversLocal(long messageUid, String operatorId, Collection<String> receivers, String exceptClientId, boolean dispatch) {
         for (String user : receivers) {
             Collection<Session> sessions = m_sessionsStore.sessionForUser(user);
             for (Session targetSession : sessions) {
@@ -647,8 +670,12 @@ public class MessagesPublisher {
             }
         }
 
-        DispatchPublishRecall2Receives publish2Receives = new DispatchPublishRecall2Receives(messageUid, operatorId, receivers, exceptClientId);
-        hazelcastInstance.getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH_RECALL).publish(publish2Receives);
+        if (dispatch) {
+            DispatchPublishRecall2Receives hzMsg = new DispatchPublishRecall2Receives(messageUid, operatorId, receivers, exceptClientId);
+            LOG.info("dispatch topic TOPIC_PUBLISH_RECALL, from={}, to={}, msgUid={}, exClientId={}",
+                hzMsg.getOperatorId(), hzMsg.getReceivers(), hzMsg.getMessageUid(), hzMsg.getExceptClientId());
+            hazelcastInstance.getTopic(HazelcastInterceptHandler.TOPIC_PUBLISH_RECALL).publish(hzMsg);
+        }
     }
 
     public void publishRecall2Receivers(long messageUid, String operatorId, Set<String> receivers, String exceptClientId) {
@@ -682,19 +709,19 @@ public class MessagesPublisher {
             int type = message.getContent().getType();
             if (type == ProtoConstants.ContentType.Image) {
                 pushContent = "[图片]";
-            } else if(type == ProtoConstants.ContentType.Location) {
+            } else if (type == ProtoConstants.ContentType.Location) {
                 pushContent = "[位置]";
-            } else if(type == ProtoConstants.ContentType.Text) {
+            } else if (type == ProtoConstants.ContentType.Text) {
                 pushContent = message.getContent().getSearchableContent();
-            } else if(type == ProtoConstants.ContentType.Voice) {
+            } else if (type == ProtoConstants.ContentType.Voice) {
                 pushContent = "[语音]";
-            } else if(type == ProtoConstants.ContentType.Video) {
+            } else if (type == ProtoConstants.ContentType.Video) {
                 pushContent = "[视频]";
-            } else if(type == ProtoConstants.ContentType.RichMedia) {
+            } else if (type == ProtoConstants.ContentType.RichMedia) {
                 pushContent = "[图文]";
-            } else if(type == ProtoConstants.ContentType.File) {
+            } else if (type == ProtoConstants.ContentType.File) {
                 pushContent = "[文件]";
-            } else if(type == ProtoConstants.ContentType.Sticker) {
+            } else if (type == ProtoConstants.ContentType.Sticker) {
                 pushContent = "[表情]";
             }
         }
@@ -704,10 +731,12 @@ public class MessagesPublisher {
         }
 
         publish2Receivers(message.getFromUser(),
-                    message.getConversation().getType(), message.getConversation().getTarget(), message.getConversation().getLine(),
-                    messageId,
-                    receivers,
-                    pushContent, message.getContent().getPushData(), exceptClientId, pullType, message.getContent().getType(), message.getServerTimestamp(), message.getContent().getMentionedType(), message.getContent().getMentionedTargetList(), message.getContent().getPersistFlag(), message.hasToUser() || !message.getToList().isEmpty());
+            message.getConversation().getType(), message.getConversation().getTarget(), message.getConversation().getLine(),
+            messageId,
+            receivers,
+            pushContent, message.getContent().getPushData(), exceptClientId, pullType, message.getContent().getType(),
+            message.getServerTimestamp(), message.getContent().getMentionedType(), message.getContent().getMentionedTargetList(),
+            message.getContent().getPersistFlag(), message.hasToUser() || !message.getToList().isEmpty(), true);
 
     }
 
@@ -727,14 +756,14 @@ public class MessagesPublisher {
             HttpUtils.httpJsonPost(forwardUrl, new Gson().toJson(OutputMessageData.fromProtoMessage(message), OutputMessageData.class), new HttpUtils.HttpCallback() {
                 @Override
                 public void onSuccess(String content) {
-                    Server.getServer().getImBusinessScheduler().execute(()->{
+                    Server.getServer().getImBusinessScheduler().execute(() -> {
                         callback.onSuccess(content);
                     });
                 }
 
                 @Override
                 public void onFailure(int statusCode, String errorMessage) {
-                    Server.getServer().getImBusinessScheduler().execute(()->{
+                    Server.getServer().getImBusinessScheduler().execute(() -> {
                         callback.onFailure(statusCode, errorMessage);
                     });
                 }

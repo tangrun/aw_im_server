@@ -1,6 +1,7 @@
 package io.moquette.interception.dispatch;
 
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -12,7 +13,7 @@ public class DispatchPublish2Receives implements Serializable {
     int          line;
     long         messageId;
 //    Map<String,Long> receivers;
-    List<String> receivers;
+    ArrayList<String> receivers;
     String       pushContent;
     String       pushData;
     String       exceptClientId;
@@ -20,15 +21,15 @@ public class DispatchPublish2Receives implements Serializable {
     int          messageContentType;
     long         serverTime;
     int          mentionType;
-    List<String> mentionTargets;
+    ArrayList<String> mentionTargets;
     int          persistFlag;
     boolean      directing;
 
     public DispatchPublish2Receives(String sender, int conversationType, String target, int line, long messageId,
 //                                    Map<String,Long> receivers,
-                                    List<String> receivers,
+                                    ArrayList<String> receivers,
                                     String pushContent, String pushData, String exceptClientId, int pullType,
-                                    int messageContentType, long serverTime, int mentionType, List<String> mentionTargets, int persistFlag, boolean directing) {
+                                    int messageContentType, long serverTime, int mentionType, ArrayList<String> mentionTargets, int persistFlag, boolean directing) {
         this.sender = sender;
         this.conversationType = conversationType;
         this.target = target;
@@ -87,11 +88,11 @@ public class DispatchPublish2Receives implements Serializable {
         this.messageId = messageId;
     }
 
-    public List<String> getReceivers() {
+    public ArrayList<String> getReceivers() {
         return receivers;
     }
 
-    public void setReceivers(List<String> receivers) {
+    public void setReceivers(ArrayList<String> receivers) {
         this.receivers = receivers;
     }
 
@@ -151,11 +152,11 @@ public class DispatchPublish2Receives implements Serializable {
         this.mentionType = mentionType;
     }
 
-    public List<String> getMentionTargets() {
+    public ArrayList<String> getMentionTargets() {
         return mentionTargets;
     }
 
-    public void setMentionTargets(List<String> mentionTargets) {
+    public void setMentionTargets(ArrayList<String> mentionTargets) {
         this.mentionTargets = mentionTargets;
     }
 

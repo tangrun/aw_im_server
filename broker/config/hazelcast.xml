@@ -111,7 +111,7 @@
             <write-delay-seconds>0</write-delay-seconds>
         </map-store>
     </map>
-    
+
     <map name="devices">
         <!-- 7 days -->
         <time-to-live-seconds>604800</time-to-live-seconds>

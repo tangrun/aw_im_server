@@ -11,10 +11,11 @@ public class HazelcastInterceptHandler
 //    extends AbstractInterceptHandler
 {
 
+
     public static final String TOPIC_PUBLISH ="pub";
     public static final String TOPIC_PUBLISH_TRANSPARENT ="pub_trans";
-    public static final String TOPIC_PUBLISH_NOTIFICATION ="pub_notif";
-    public static final String TOPIC_PUBLISH_RECALL ="pub_notif";
+    public static final String TOPIC_PUBLISH_NOTIFICATION ="pub_notify";
+    public static final String TOPIC_PUBLISH_RECALL ="pub_recall";
 
 //    public static final String TOPIC_PUBLISH ="pub";
 //    public static final String TOPIC_ACK ="ack";
