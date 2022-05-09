@@ -62,7 +62,7 @@ public class UploadFileAction extends Action {
             String signKey = DES.decryptDES(token);
             String[] parts = signKey.split("\\|");
             if(parts.length == 3) {
-                if(parts[0].equals(MediaServerConfig.FileServerTokenKey)) {
+                if(parts[0].equals(MediaServerConfig.FileServerTokenKey) || parts[0].equals("imfile")) {
                     long timestamp = Long.parseLong(parts[1]);
                     if(Math.abs(System.currentTimeMillis() - timestamp) < 2 * 60 * 60 * 1000) {
                         return Integer.parseInt(parts[2]);
