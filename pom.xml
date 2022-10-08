@@ -3,7 +3,7 @@
     <modelVersion>4.0.0</modelVersion>
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <netty.version>4.1.12.Final</netty.version>
+        <netty.version>4.1.68.Final</netty.version>
         <source.version>1.8</source.version>
         <target.version>1.8</target.version>
     </properties>
@@ -12,7 +12,7 @@
     <artifactId>wildfirechat-parent</artifactId>
 
     <packaging>pom</packaging>
-    <version>0.81</version>
+    <version>0.96</version>
     <name>Wildfire Chat</name>
     <description>Wildfire Chat Server</description>
     <inceptionYear>2019</inceptionYear>

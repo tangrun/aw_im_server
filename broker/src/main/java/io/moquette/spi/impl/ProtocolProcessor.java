@@ -43,6 +43,7 @@ import io.netty.handler.codec.mqtt.*;
 import io.netty.handler.timeout.IdleStateHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import win.liyufan.im.GsonUtil;
 import win.liyufan.im.HttpUtils;
 import win.liyufan.im.IMTopic;
 import win.liyufan.im.Utility;
@@ -264,7 +265,7 @@ public class ProtocolProcessor {
         if (!StringUtil.isNullOrEmpty(mUserOnlineStatusCallback)) {
             mServer.getCallbackScheduler().execute(() -> {
                 try {
-                    HttpUtils.httpJsonPost(mUserOnlineStatusCallback, new Gson().toJson(new UserOnlineStatus(userId, clientId, platform, status, packageName)), HttpUtils.HttpPostType.POST_TYPE_User_Online_Event_Callback);
+                    HttpUtils.httpJsonPost(mUserOnlineStatusCallback, GsonUtil.gson.toJson(new UserOnlineStatus(userId, clientId, platform, status, packageName)), HttpUtils.HttpPostType.POST_TYPE_User_Online_Event_Callback);
                 } catch (Exception e) {
                     e.printStackTrace();
                     Utility.printExecption(LOG, e, EVENT_CALLBACK_Exception);
@@ -307,7 +308,7 @@ public class ProtocolProcessor {
             }
             byte[] pwd = null;
             if (msg.variableHeader().hasPassword()) {
-                pwd = msg.payload().password();
+                pwd = msg.payload().passwordInBytes();
 
                 MemorySessionStore.Session session = m_sessionsStore.getSession(clientId);
                 if (session == null) {
@@ -620,15 +621,27 @@ public class ProtocolProcessor {
         String username = NettyUtils.userName(channel);
         MemorySessionStore.Session session = m_sessionsStore.getSession(clientID);
         if(session != null) {
-            session.refreshLastActiveTime();
-            forwardOnlineStatusEvent(username, clientID, session.getPlatform(), clearSession ? UserOnlineStatus.LOGOUT : UserOnlineStatus.OFFLINE, session.getAppName());
+            processOffline(session, clearSession, () -> {
+                ConnectionDescriptor oldConnDescr = new ConnectionDescriptor(clientID, channel);
+                if(connectionDescriptors.removeConnection(oldConnDescr)) {
+                    m_interceptor.notifyClientConnectionLost(clientID, username);
+                }
+            });
+        } else {
+            ConnectionDescriptor oldConnDescr = new ConnectionDescriptor(clientID, channel);
+            if(connectionDescriptors.removeConnection(oldConnDescr)) {
+                m_interceptor.notifyClientConnectionLost(clientID, username);
+            }
         }
+    }
 
-        ConnectionDescriptor oldConnDescr = new ConnectionDescriptor(clientID, channel);
-        if(connectionDescriptors.removeConnection(oldConnDescr)) {
-            m_interceptor.notifyClientConnectionLost(clientID, username);
-        }
+    public void processOffline(MemorySessionStore.Session session, boolean logout, Runnable runnable) {
         if(session != null) {
+            session.refreshLastActiveTime();
+            forwardOnlineStatusEvent(session.getUsername(), session.getClientID(), session.getPlatform(), logout ? UserOnlineStatus.LOGOUT : UserOnlineStatus.OFFLINE, session.getAppName());
+            if(runnable != null) {
+                runnable.run();
+            }
             m_messagesStore.updateUserOnlineSetting(session, false);
         }
     }

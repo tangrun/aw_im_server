@@ -4,9 +4,11 @@ import cn.wildfirechat.common.APIPath;
 import cn.wildfirechat.pojos.*;
 import cn.wildfirechat.sdk.model.IMResult;
 import cn.wildfirechat.sdk.utilities.RobotHttpUtils;
-import cn.wildfirechat.sdk.utilities.RobotHttpUtils;
+import org.apache.commons.codec.digest.DigestUtils;
 
 import java.util.List;
+
+import static cn.wildfirechat.proto.ProtoConstants.ApplicationType.ApplicationType_Robot;
 
 public class RobotService {
     private final RobotHttpUtils robotHttpUtils;
@@ -59,8 +61,9 @@ public class RobotService {
         return robotHttpUtils.httpJsonPost(path, null, Void.class);
     }
 
-    public IMResult<InputOutputUserInfo> getProfile(String robotId) throws Exception {
-        return getUserInfo(robotId);
+    public IMResult<OutputRobot> getProfile() throws Exception {
+        String path = APIPath.Robot_Get_Profile;
+        return robotHttpUtils.httpJsonPost(path, null, OutputRobot.class);
     }
 
     /*
@@ -214,4 +217,27 @@ public class RobotService {
         input.setNotify_message(notify_message);
         return robotHttpUtils.httpJsonPost(path, input, Void.class);
     }
+
+    public IMResult<OutputApplicationUserInfo> applicationGetUserInfo(String authCode) throws Exception {
+        String path = APIPath.Robot_Application_Get_UserInfo;
+        InputApplicationGetUserInfo input = new InputApplicationGetUserInfo();
+        input.setAuthCode(authCode);
+        return robotHttpUtils.httpJsonPost(path, input, OutputApplicationUserInfo.class);
+    }
+
+    public OutputApplicationConfigData getApplicationSignature() {
+        int nonce = (int)(Math.random() * 100000 + 3);
+        long timestamp = System.currentTimeMillis()/1000;
+        String str = nonce + "|" + robotHttpUtils.getRobotId() + "|" + timestamp + "|" + robotHttpUtils.getRobotSecret();
+        String sign = DigestUtils.sha1Hex(str);
+        OutputApplicationConfigData configData = new OutputApplicationConfigData();
+        configData.setAppId(robotHttpUtils.getRobotId());
+        configData.setAppType(ApplicationType_Robot);
+        configData.setTimestamp(timestamp);
+        configData.setNonceStr(nonce+"");
+        configData.setSignature(sign);
+        return configData;
+    }
+
+
 }

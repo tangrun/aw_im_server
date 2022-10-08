@@ -2,6 +2,7 @@ package cn.wildfirechat.sdk.utilities;
 
 import cn.wildfirechat.sdk.model.IMResult;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import ikidou.reflect.TypeBuilder;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.http.HttpResponse;
@@ -10,8 +11,10 @@ import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.DefaultHttpRequestRetryHandler;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,10 +22,12 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.lang.reflect.Type;
 import java.nio.charset.Charset;
+import java.util.concurrent.TimeUnit;
 
 
-public class ChannelHttpUtils {
+public class ChannelHttpUtils extends JsonUtils {
     private static final Logger LOG = LoggerFactory.getLogger(ChannelHttpUtils.class);
+    public static final Gson gson = new GsonBuilder().disableHtmlEscaping().create();
 
     private String imurl;
     private String channelId;
@@ -33,7 +38,16 @@ public class ChannelHttpUtils {
         this.imurl = imurl;
         this.channelId = channelId;
         this.channelSecret = secret;
-        this.httpClient = HttpClients.createDefault();
+        PoolingHttpClientConnectionManager cm = new PoolingHttpClientConnectionManager();
+        cm.setValidateAfterInactivity(1000);
+        httpClient = HttpClients.custom()
+            .setConnectionManager(cm)
+            .evictExpiredConnections()
+            .evictIdleConnections(60L, TimeUnit.SECONDS)
+            .setRetryHandler(DefaultHttpRequestRetryHandler.INSTANCE)
+            .setMaxConnTotal(100)
+            .setMaxConnPerRoute(50)
+            .build();
     }
 
     public <T> IMResult<T> httpJsonPost(String path, Object object, Class<T> clazz) throws Exception{
@@ -62,7 +76,7 @@ public class ChannelHttpUtils {
 
             String jsonStr = "";
             if (object != null) {
-                jsonStr = new Gson().toJson(object);
+                jsonStr = gson.toJson(object);
             }
             LOG.info("http request content: {}", jsonStr);
 
@@ -103,16 +117,11 @@ public class ChannelHttpUtils {
         }
     }
 
-    private static <T> IMResult<T> fromJsonObject(String content, Class<T> clazz) {
-        Type type = TypeBuilder
-                .newInstance(IMResult.class)
-                .addTypeParam(clazz)
-                .build();
-        return new Gson().fromJson(content, type);
+    public String getChannelId() {
+        return channelId;
     }
 
-    private static boolean isNullOrEmpty(String str) {
-        return str == null || str.isEmpty();
+    public String getChannelSecret() {
+        return channelSecret;
     }
-
 }

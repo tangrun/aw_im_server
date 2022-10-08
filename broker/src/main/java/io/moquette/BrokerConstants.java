@@ -134,16 +134,19 @@ public final class BrokerConstants {
     public static final String SENSITIVE_Remote_Fail_When_Matched = "sensitive.remote_fail_when_matched";
 
     public static final String MESSAGE_Forward_Url = "message.forward.url";
+    public static final String MESSAGE_Sensitive_Forward_Url = "message.sensitive.forward.url";
     public static final String MESSAGE_Forward_Types = "message.forward.types";
     public static final String MESSAGE_MentionMsg_Forward_Url = "message.mentionmsg.forward.url";
 
 
     public static final String SERVER_MULTI_ENDPOINT = "server.multi_endpoint";
+    public static final String SERVER_MULTI_PC_ENDPOINT = "server.multi_pc_endpoint";
     public static final String SERVER_MULTI_PLATFROM_NOTIFICATION = "server.multi_platform_notification";
     public static final String SERVER_MOBILE_DEFAULT_SILENT_WHEN_PC_ONLINE = "server.mobile_default_silent_when_pc_online";
     public static final String SERVER_CLIENT_SUPPORT_KICKOFF_EVENT = "server.client_support_kickoff_event";
 
     public static final String MESSAGE_ROAMING = "message.roaming";
+    public static final String MESSAGE_Compensate_Time_Limit = "message.compensate_time_limit";
     public static final String MESSAGE_Remote_History_Message = "message.remote_history_message";
     public static final String MESSAGE_Remote_Chatroom_History_Message = "message.chatroom_remote_history_message";
 
@@ -154,6 +157,10 @@ public final class BrokerConstants {
     public static final String MESSAGE_Blacklist_Strategy = "message.blacklist.strategy";
 
     public static final String MESSAGE_NO_Forward_Admin_Message = "message.no_forward_admin_message";
+
+    public static final String MESSAGE_Forward_With_Client_Info = "message.forward_with_client_info";
+    public static final String ROBOT_Callback_With_Client_Info = "robot.callback_with_client_info";
+    public static final String CHANNEL_Callback_With_Client_Info = "channel.callback_with_client_info";
 
     public static final String FRIEND_Disable_Search = "friend.disable_search";
     public static final String FRIEND_Disable_NickName_Search = "friend.disable_nick_name_search";
@@ -174,6 +181,8 @@ public final class BrokerConstants {
     public static final String GROUP_Visible_Quit_Kickoff_Notification = "group.visible_quit_or_kickoff_notification";
 
     public static final String USER_HIDE_PROPERTIES = "user.hide_properties";
+    public static final String USER_KEEP_DISPLAY_NAME_WHEN_DESTROY = "user.keep_display_name_when_destroy";
+
     public static final String SYNC_Data_Part_Size = "sync.data_part_size";
 
     public static final String MESSAGES_FORBIDDEN_CLIENT_SEND_TYPES = "message.forbidden_client_send_types";

@@ -57,6 +57,7 @@ import io.netty.handler.codec.mqtt.MqttFixedHeader;
 import io.netty.handler.codec.mqtt.MqttMessageType;
 import io.netty.handler.codec.mqtt.MqttPublishMessage;
 import cn.wildfirechat.common.ErrorCode;
+import win.liyufan.im.GsonUtil;
 import win.liyufan.im.IMTopic;
 import win.liyufan.im.RateLimiter;
 import win.liyufan.im.Utility;
@@ -142,7 +143,7 @@ public class Qos1PublishHandler extends QosPublishHandler {
                 out.addSession(userId, session.getClientID(), session.getPlatform(), status, session.getLastActiveTime());
             }
 
-            callback.onRouteHandled(new Gson().toJson(out).getBytes());
+            callback.onRouteHandled(GsonUtil.gson.toJson(out).getBytes());
         });
     }
 
@@ -163,16 +164,19 @@ public class Qos1PublishHandler extends QosPublishHandler {
                         } else {
                             MemorySessionStore.Session session = m_sessionStore.getSession(clientID);
                             if (session != null && session.getUsername().equals(fromUser)) {
-                                if (data.length > 7*1024 && session.getMqttVersion().protocolLevel() >= MqttVersion.Wildfire_1.protocolLevel()) {
+                                if (data.length > 7*1024 && session.getMqttVersion().protocolLevel() >= MqttVersion.MQTT_5.protocolLevel()) {
                                     ByteArrayOutputStream out = new ByteArrayOutputStream();
-                                    GZIPOutputStream gzip;
+                                    GZIPOutputStream gzip = null;
                                     try {
                                         gzip = new GZIPOutputStream(out);
                                         gzip.write(data);
-                                        gzip.close();
                                     } catch (Exception e) {
                                         e.printStackTrace();
                                         Utility.printExecption(LOG, e);
+                                    } finally {
+                                        if(gzip != null) {
+                                            gzip.close();
+                                        }
                                     }
                                     data = out.toByteArray();
                                     code = (byte)ErrorCode.ERROR_CODE_SUCCESS_GZIPED.code;

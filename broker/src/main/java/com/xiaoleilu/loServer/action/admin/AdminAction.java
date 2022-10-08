@@ -34,6 +34,10 @@ abstract public class AdminAction extends Action {
         SECRET_KEY = secretKey;
     }
 
+    public static String getSecretKey() {
+        return SECRET_KEY;
+    }
+
     public static void setNoCheckTime(String noCheckTime) {
         try {
             NO_CHECK_TIME = Boolean.parseBoolean(noCheckTime);
@@ -95,7 +99,7 @@ abstract public class AdminAction extends Action {
             }
 
             RestResult result = RestResult.resultOf(errorCode, errorCode.getMsg(), data);
-            response.setContent(new Gson().toJson(result));
+            response.setContent(gson.toJson(result));
             response.send();
         }
     }
@@ -108,7 +112,7 @@ abstract public class AdminAction extends Action {
     }
 
     protected void sendApiMessage(Response response, String fromUser, String clientId, String topic, byte[] message, ApiCallback callback, boolean noAdmin) {
-        ServerAPIHelper.sendRequest(fromUser, clientId, topic, message, new ServerAPIHelper.Callback() {
+        ServerAPIHelper.sendRequest(fromUser, clientId, topic, message, callback == null ? null : new ServerAPIHelper.Callback() {
             @Override
             public void onSuccess(byte[] result) {
                 if(callback != null) {

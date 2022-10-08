@@ -26,6 +26,7 @@ public interface APIPath {
     String User_Get_Token = "/admin/user/get_token";
     String User_Update_Block_Status = "/admin/user/update_block_status";
     String User_Get_Info = "/admin/user/get_info";
+    String User_Get_Robot_Info = "/admin/user/get_robot_info";
     String User_Get_Blocked_List = "/admin/user/get_blocked_list";
     String User_Check_Block_Status = "/admin/user/check_block_status";
     String User_Get_Online_Status = "/admin/user/onlinestatus";
@@ -34,6 +35,7 @@ public interface APIPath {
     String User_Kickoff_Client = "/admin/user/kickoff_client";
     String User_Online_Count = "/admin/user/online_count";
     String User_Online_List = "/admin/user/online_list";
+    String User_Application_Get_UserInfo = "/admin/user/app_get_user_info";
 
     String Friend_Update_Status = "/admin/friend/status";
     String Friend_Get_List = "/admin/friend/list";
@@ -50,10 +52,15 @@ public interface APIPath {
     String Msg_Recall = "/admin/message/recall";
     String Msg_Delete = "/admin/message/delete";
     String Msg_Update = "/admin/message/update";
+    String Msg_GetOne = "/admin/message/get_one";
     String Msg_Broadcast = "/admin/message/broadcast";
     String Msg_Multicast = "/admin/message/multicast";
     String Msg_RecallBroadCast = "/admin/message/recall_broadcast";
     String Msg_RecallMultiCast = "/admin/message/recall_multicast";
+    String Msg_ConvRead = "/admin/message/conv_read";
+    String Msg_Delivery = "/admin/message/delivery";
+    String Conversation_Delete = "/admin/conversation/delete";
+    String Msg_Clear_By_User = "/admin/message/clear_by_user";
 
     String Create_Group = "/admin/group/create";
     String Group_Dismiss = "/admin/group/del";
@@ -74,6 +81,8 @@ public interface APIPath {
     String Create_Channel = "/admin/channel/create";
     String Destroy_Channel = "/admin/channel/destroy";
     String Get_Channel_Info = "/admin/channel/get";
+    String Subscribe_Channel = "/admin/channel/subscribe";
+    String Check_User_Subscribe_Channel = "/admin/channel/is_subscribed";
     String Get_System_Setting = "/admin/system/get_setting";
     String Put_System_Setting = "/admin/system/put_setting";
 
@@ -83,6 +92,7 @@ public interface APIPath {
     String Conference_List_Participant = "/admin/conference/list_participant";
     String Conference_Create = "/admin/conference/create";
     String Conference_Destroy = "/admin/conference/destroy";
+    String Conference_Recording = "/admin/conference/recording";
 
     String Channel_User_Info = "/channel/user_info";
     String Channel_Update_Profile = "/channel/update_profile";
@@ -90,17 +100,16 @@ public interface APIPath {
     String Channel_Message_Send = "/channel/message/send";
     String Channel_Subscribe = "/channel/subscribe";
     String Channel_Subscriber_List = "/channel/subscriber_list";
+    String Channel_Application_Get_UserInfo = "/channel/application/get_user_info";
 
     String Robot_User_Info = "/robot/user_info";
+    String Robot_Get_Profile = "/robot/profile";
     String Robot_Message_Send = "/robot/message/send";
-
     String Robot_Set_Callback = "/robot/set_callback";
     String Robot_Get_Callback = "/robot/get_callback";
     String Robot_Delete_Callback = "/robot/delete_callback";
     String Robot_Update_Profile = "/robot/update_profile";
-
-    String Robot_Verify_Application_User = "/robot/user/verify";
-
+    String Robot_Application_Get_UserInfo = "/robot/application/get_user_info";
     String Robot_Group_Member_Add = "/robot/group/member/add";
     String Robot_Group_Allow_Member = "/robot/group/manager/allow";
     String Robot_Create_Group = "/robot/group/create";

@@ -13,6 +13,15 @@ public class Conversation {
     private String target;
     private int line;
 
+    public Conversation() {
+    }
+
+    public Conversation(int type, String target, int line) {
+        this.type = type;
+        this.target = target;
+        this.line = line;
+    }
+
     public int getType() {
         return type;
     }

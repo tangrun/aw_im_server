@@ -2,17 +2,22 @@ package cn.wildfirechat.sdk.utilities;
 
 import cn.wildfirechat.sdk.model.IMResult;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import ikidou.reflect.TypeBuilder;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.http.HttpResponse;
 import org.apache.http.HttpStatus;
 import org.apache.http.client.HttpClient;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
+import org.apache.http.config.ConnectionConfig;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.DefaultHttpRequestRetryHandler;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,10 +25,12 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.lang.reflect.Type;
 import java.nio.charset.Charset;
+import java.util.concurrent.TimeUnit;
 
 
-public class AdminHttpUtils {
+public class AdminHttpUtils extends JsonUtils {
     private static final Logger LOG = LoggerFactory.getLogger(AdminHttpUtils.class);
+    public static final Gson gson = new GsonBuilder().disableHtmlEscaping().create();
 
     private static String adminUrl;
     private static String adminSecret;
@@ -32,7 +39,16 @@ public class AdminHttpUtils {
     public static void init(String url, String secret) {
         adminUrl = url;
         adminSecret = secret;
-        httpClient = HttpClients.createDefault();
+        PoolingHttpClientConnectionManager cm = new PoolingHttpClientConnectionManager();
+        cm.setValidateAfterInactivity(1000);
+        httpClient = HttpClients.custom()
+            .setConnectionManager(cm)
+            .evictExpiredConnections()
+            .evictIdleConnections(60L, TimeUnit.SECONDS)
+            .setRetryHandler(DefaultHttpRequestRetryHandler.INSTANCE)
+            .setMaxConnTotal(100)
+            .setMaxConnPerRoute(50)
+            .build();
     }
 
     public static <T> IMResult<T> httpGet(String path, Class<T> clazz) throws Exception {
@@ -110,7 +126,7 @@ public class AdminHttpUtils {
 
             String jsonStr = "";
             if (object != null) {
-                jsonStr = new Gson().toJson(object);
+                jsonStr = gson.toJson(object);
             }
             LOG.info("http request content: {}", jsonStr);
 
@@ -152,17 +168,4 @@ public class AdminHttpUtils {
             }
         }
     }
-
-    private static <T> IMResult<T> fromJsonObject(String content, Class<T> clazz) {
-        Type type = TypeBuilder
-                .newInstance(IMResult.class)
-                .addTypeParam(clazz)
-                .build();
-        return new Gson().fromJson(content, type);
-    }
-
-    private static boolean isNullOrEmpty(String str) {
-        return str == null || str.isEmpty();
-    }
-
 }

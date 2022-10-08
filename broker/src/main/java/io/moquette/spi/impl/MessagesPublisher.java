@@ -16,6 +16,7 @@
 
 package io.moquette.spi.impl;
 
+import cn.wildfirechat.pojos.OutputClient;
 import cn.wildfirechat.pojos.OutputMessageData;
 import cn.wildfirechat.proto.ProtoConstants;
 import cn.wildfirechat.proto.WFCMessage;
@@ -24,7 +25,6 @@ import com.google.gson.Gson;
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.util.StringUtil;
 import cn.wildfirechat.pojos.OutputNotifyChannelSubscribeStatus;
-import cn.wildfirechat.pojos.SendMessageData;
 import com.xiaoleilu.loServer.model.FriendData;
 import io.moquette.persistence.*;
 import io.moquette.persistence.MemorySessionStore.Session;
@@ -35,6 +35,7 @@ import io.moquette.spi.ISessionsStore;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.mqtt.*;
+import win.liyufan.im.GsonUtil;
 import win.liyufan.im.HttpUtils;
 import win.liyufan.im.IMTopic;
 
@@ -176,10 +177,19 @@ public class MessagesPublisher {
                         if (message == null) {
                             message = m_messagesStore.getMessage(messageId);
                         }
+                        OutputClient outputClient = null;
+                        if(m_messagesStore.isRobotCallbackWithClientInfo() && !StringUtil.isNullOrEmpty(exceptClientId)) {
+                            Session session = m_sessionsStore.getSession(exceptClientId);
+                            if(session != null && session.getUsername().equals(sender)) {
+                                outputClient = new OutputClient(session.getPlatform(), exceptClientId);
+                            }
+                        }
+
                         final WFCMessage.Message finalMsg = message;
+                        OutputClient finalOutputClient = outputClient;
                         Server.getServer().getCallbackScheduler().execute(() -> {
                             try {
-                                HttpUtils.httpJsonPost(robot.getCallback(), new Gson().toJson(SendMessageData.fromProtoMessage(finalMsg), SendMessageData.class), HttpUtils.HttpPostType.POST_TYPE_Robot_Message_Callback);
+                                HttpUtils.httpJsonPost(robot.getCallback(), GsonUtil.gson.toJson(OutputMessageData.fromProtoMessage(finalMsg, finalOutputClient), OutputMessageData.class), HttpUtils.HttpPostType.POST_TYPE_Robot_Message_Callback);
                             } catch (Exception e) {
                                 e.printStackTrace();
                                 Utility.printExecption(LOG, e, EVENT_CALLBACK_Exception);
@@ -595,10 +605,19 @@ public class MessagesPublisher {
     public void publish2Receivers(WFCMessage.Message message, Set<String> receivers, String exceptClientId, int pullType) {
         if (message.getConversation().getType() == ProtoConstants.ConversationType.ConversationType_Channel) {
             WFCMessage.ChannelInfo channelInfo = m_messagesStore.getChannelInfo(message.getConversation().getTarget());
-            if (channelInfo != null && !StringUtil.isNullOrEmpty(channelInfo.getCallback())) {
+            if (channelInfo != null && !StringUtil.isNullOrEmpty(channelInfo.getCallback()) && channelInfo.getAutomatic() == 1 && !message.getFromUser().equals(channelInfo.getOwner())) {
+                OutputClient outputClient = null;
+                if(m_messagesStore.isChannelCallbackWithClientInfo() && !StringUtil.isNullOrEmpty(exceptClientId)) {
+                    Session session = m_sessionsStore.getSession(exceptClientId);
+                    if(session != null && session.getUsername().equals(message.getFromUser())) {
+                        outputClient = new OutputClient(session.getPlatform(), exceptClientId);
+                    }
+                }
+
+                OutputClient finalOutputClient = outputClient;
                 Server.getServer().getCallbackScheduler().execute(() -> {
                     try {
-                        HttpUtils.httpJsonPost(channelInfo.getCallback() + "/message", new Gson().toJson(SendMessageData.fromProtoMessage(message), SendMessageData.class), HttpUtils.HttpPostType.POST_TYPE_Channel_Message_Callback);
+                        HttpUtils.httpJsonPost(channelInfo.getCallback() + "/message", GsonUtil.gson.toJson(OutputMessageData.fromProtoMessage(message, finalOutputClient), OutputMessageData.class), HttpUtils.HttpPostType.POST_TYPE_Channel_Message_Callback);
                     } catch (Exception e) {
                         e.printStackTrace();
                         Utility.printExecption(LOG, e, EVENT_CALLBACK_Exception);
@@ -627,8 +646,8 @@ public class MessagesPublisher {
                 pushContent = "[语音]";
             } else if(type == ProtoConstants.ContentType.Video) {
                 pushContent = "[视频]";
-            } else if(type == ProtoConstants.ContentType.RichMedia) {
-                pushContent = "[图文]";
+            } else if(type == ProtoConstants.ContentType.Link) {
+                pushContent = "[链接]";
             } else if(type == ProtoConstants.ContentType.File) {
                 pushContent = "[文件]";
             } else if(type == ProtoConstants.ContentType.Sticker) {
@@ -648,10 +667,10 @@ public class MessagesPublisher {
 
     }
 
-    public void forwardMessage(final WFCMessage.Message message, String forwardUrl) {
+    public void forwardMessage(final WFCMessage.Message message, String forwardUrl, OutputClient outputClient) {
         Server.getServer().getCallbackScheduler().execute(() -> {
             try {
-                HttpUtils.httpJsonPost(forwardUrl, new Gson().toJson(OutputMessageData.fromProtoMessage(message), OutputMessageData.class), HttpUtils.HttpPostType.POST_TYPE_Forward_Message_Callback);
+                HttpUtils.httpJsonPost(forwardUrl, GsonUtil.gson.toJson(OutputMessageData.fromProtoMessage(message, outputClient), OutputMessageData.class), HttpUtils.HttpPostType.POST_TYPE_Forward_Message_Callback);
             } catch (Exception e) {
                 e.printStackTrace();
                 Utility.printExecption(LOG, e, EVENT_CALLBACK_Exception);
@@ -661,7 +680,7 @@ public class MessagesPublisher {
 
     public void forwardMessageWithCallback(final WFCMessage.Message message, String forwardUrl, HttpUtils.HttpCallback callback) {
         try {
-            HttpUtils.httpJsonPost(forwardUrl, new Gson().toJson(OutputMessageData.fromProtoMessage(message), OutputMessageData.class), new HttpUtils.HttpCallback() {
+            HttpUtils.httpJsonPost(forwardUrl, GsonUtil.gson.toJson(OutputMessageData.fromProtoMessage(message), OutputMessageData.class), new HttpUtils.HttpCallback() {
                 @Override
                 public void onSuccess(String content) {
                     Server.getServer().getImBusinessScheduler().execute(()->{
@@ -683,13 +702,13 @@ public class MessagesPublisher {
     }
 
     public void notifyChannelListenStatusChanged(WFCMessage.ChannelInfo channelInfo, String user, boolean listen) {
-        if (channelInfo == null || StringUtil.isNullOrEmpty(channelInfo.getCallback())) {
+        if (channelInfo == null || StringUtil.isNullOrEmpty(channelInfo.getCallback()) || channelInfo.getAutomatic() == 0) {
             return;
         }
 
         Server.getServer().getCallbackScheduler().execute(() -> {
             try {
-                HttpUtils.httpJsonPost(channelInfo.getCallback() + "/subscribe", new Gson().toJson(new OutputNotifyChannelSubscribeStatus(user, channelInfo.getTargetId(), listen), OutputNotifyChannelSubscribeStatus.class), HttpUtils.HttpPostType.POST_TYPE_Channel_Subscriber_Event_Callback);
+                HttpUtils.httpJsonPost(channelInfo.getCallback() + "/subscribe", GsonUtil.gson.toJson(new OutputNotifyChannelSubscribeStatus(user, channelInfo.getTargetId(), listen), OutputNotifyChannelSubscribeStatus.class), HttpUtils.HttpPostType.POST_TYPE_Channel_Subscriber_Event_Callback);
             } catch (Exception e) {
                 e.printStackTrace();
                 Utility.printExecption(LOG, e, EVENT_CALLBACK_Exception);

@@ -135,7 +135,8 @@ public class UploadFileAction extends Action {
                 }
 
                 readHttpDataChunkByChunk(response, decoder, requestId, HttpHeaders.isKeepAlive(request));
-
+                decoder.destroy();
+                
                 if (chunk instanceof LastHttpContent) {
 
                 }

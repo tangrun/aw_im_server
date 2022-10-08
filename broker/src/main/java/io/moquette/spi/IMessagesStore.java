@@ -150,7 +150,7 @@ public interface IMessagesStore {
 
     ErrorCode updateUserInfo(InputOutputUserInfo userInfo, int flag);
     void addUserInfo(WFCMessage.User user, String password) throws Exception;
-    void destoryUser(String userId);
+    void destroyUser(String userId);
     void updateUserInfo(WFCMessage.User user) throws Exception;
     WFCMessage.User getUserInfo(String userId);
     WFCMessage.User getUserInfoByName(String name);
@@ -193,6 +193,11 @@ public interface IMessagesStore {
 
     boolean checkChatroomParticipantIdelTime(MemorySessionStore.Session session);
 
+
+    String getApplicationAuthCode(String fromUser, String applicationId, int appType, String host);
+    String verifyApplicationAuthCode(String token, String applicationId, int type);
+    ErrorCode configApplication(String appId, int appType, long timestamp, String nonce, String signature);
+
     ErrorCode getUserSettings(String userId, long version, WFCMessage.GetUserSettingResult.Builder builder);
     WFCMessage.UserSettingEntry getUserSetting(String userId, int scope, String key);
     List<WFCMessage.UserSettingEntry> getUserSetting(String userId, int scope);
@@ -209,7 +214,7 @@ public interface IMessagesStore {
     void clearUserChannels(String userId);
     ErrorCode modifyChannelInfo(String operator, String channelId, int modifyType, String value);
     ErrorCode transferChannel(String operator, String channelId, String newOwner);
-    ErrorCode distoryChannel(String operator, String channelId, boolean isAdmin);
+    ErrorCode destroyChannel(String operator, String channelId, boolean isAdmin);
     List<WFCMessage.ChannelInfo> searchChannel(String keyword, boolean buzzy, int page);
     ErrorCode listenChannel(String operator, String channelId, boolean listen);
     WFCMessage.ChannelInfo getChannelInfo(String channelId);
@@ -228,6 +233,10 @@ public interface IMessagesStore {
     boolean isAllowClientCustomGroupNotification();
     boolean isAllowRobotCustomGroupNotification();
     int getVisibleQuitKickoffNotification();
+
+    boolean isForwardMessageWithClientInfo();
+    boolean isRobotCallbackWithClientInfo();
+    boolean isChannelCallbackWithClientInfo();
 
     List<Integer> getClientForbiddenSendTypes();
     List<Integer> getBlackListExceptionTypes();

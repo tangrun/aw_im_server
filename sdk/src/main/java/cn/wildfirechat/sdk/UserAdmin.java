@@ -52,6 +52,13 @@ public class UserAdmin {
         return AdminHttpUtils.httpJsonPost(path, inputDestroyUser, Void.class);
     }
 
+    public static IMResult<OutputRobot> getRobotInfo(String robotId) throws Exception {
+        String path = APIPath.User_Get_Robot_Info;
+        InputRobotId getRobotInfo = new InputRobotId();
+        getRobotInfo.setRobotId(robotId);
+        return AdminHttpUtils.httpJsonPost(path, getRobotInfo, OutputRobot.class);
+    }
+
     public static IMResult<OutputGetIMTokenData> getUserToken(String userId, String clientId, int platform) throws Exception {
         String path = APIPath.User_Get_Token;
         InputGetToken getToken = new InputGetToken(userId, clientId, platform);
@@ -128,5 +135,12 @@ public class UserAdmin {
         request.offset = offset;
         request.count = count;
         return AdminHttpUtils.httpJsonPost(APIPath.User_Online_List, request, GetOnlineUserResult.class);
+    }
+
+    public static IMResult<OutputApplicationUserInfo> applicationGetUserInfo(String authCode) throws Exception {
+        String path = APIPath.User_Application_Get_UserInfo;
+        InputApplicationGetUserInfo input = new InputApplicationGetUserInfo();
+        input.setAuthCode(authCode);
+        return AdminHttpUtils.httpJsonPost(path, input, OutputApplicationUserInfo.class);
     }
 }

@@ -1,18 +1,19 @@
 package cn.wildfirechat.sdk;
 
 import cn.wildfirechat.common.ErrorCode;
+import cn.wildfirechat.messagecontentbuilder.RichNotificationContentBuilder;
+import cn.wildfirechat.messagecontentbuilder.TextMessageContentBuilder;
 import cn.wildfirechat.pojos.*;
 import cn.wildfirechat.proto.ProtoConstants;
 import cn.wildfirechat.sdk.model.IMResult;
 import cn.wildfirechat.sdk.utilities.AdminHttpUtils;
 import cn.wildfirechat.sdk.utilities.RobotHttpUtils;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import io.netty.util.internal.StringUtil;
 
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Date;
-import java.util.List;
+import java.util.*;
 
 import static cn.wildfirechat.pojos.MyInfoType.Modify_DisplayName;
 import static cn.wildfirechat.proto.ProtoConstants.ChannelState.*;
@@ -20,6 +21,7 @@ import static cn.wildfirechat.proto.ProtoConstants.SystemSettingType.Group_Max_M
 
 public class Main {
     private static boolean commercialServer = false;
+    private static boolean advanceVoip = false;
     //管理端口是8080
     private static String AdminUrl = "http://localhost:18080";
     private static String AdminSecret = "123456";
@@ -51,6 +53,8 @@ public class Main {
         testSensitiveApi();
         if (commercialServer) {
             testDevice();
+        }
+        if(advanceVoip) {
             testConference();
         }
 
@@ -89,6 +93,14 @@ public class Main {
             System.out.println("Create robot " + resultCreateRobot.getResult().getUserId() + " success");
         } else {
             System.out.println("Create robot failure");
+            System.exit(-1);
+        }
+
+        IMResult<OutputRobot> outputRobotIMResult = UserAdmin.getRobotInfo("robot1");
+        if(outputRobotIMResult != null && outputRobotIMResult.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
+            System.out.println("Get robot success");
+        } else {
+            System.out.println("Get robot failure");
             System.exit(-1);
         }
 
@@ -650,13 +662,11 @@ public class Main {
     //***********************************************
     static void testMessage() throws Exception {
         Conversation conversation = new Conversation();
-        conversation.setTarget("user2");
+        conversation.setTarget("ff2");
         conversation.setType(ProtoConstants.ConversationType.ConversationType_Private);
-        MessagePayload payload = new MessagePayload();
-        payload.setType(1);
-        payload.setSearchableContent("hello world");
+        MessagePayload payload = TextMessageContentBuilder.newBuilder("Hello world").build();
 
-        IMResult<SendMessageResult> resultSendMessage = MessageAdmin.sendMessage("user1", conversation, payload, null);
+        IMResult<SendMessageResult> resultSendMessage = MessageAdmin.sendMessage("ff1", conversation, payload, null);
         if (resultSendMessage != null && resultSendMessage.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
             System.out.println("send message success");
         } else {
@@ -664,6 +674,31 @@ public class Main {
             System.exit(-1);
         }
 
+        RichNotificationContentBuilder builder = RichNotificationContentBuilder.newBuilder("产品审核通知", "您好，您的SSL证书以审核通过并成功办理，请关注", "https://www.baidu.com")
+            .remark("谢谢惠顾")
+            .exName("证书小助手")
+            .appId("1234567890")
+            .addItem("登陆账户", "野火IM", "#173177")
+            .addItem("产品名称", "域名wildifrechat.cn申请的免费SSL证书", "#173177")
+            .addItem("审核通过", "通过", "#173177")
+            .addItem("说明", "请登陆账户查看处理", "#173177");
+
+
+        resultSendMessage = MessageAdmin.sendMessage("ff1", conversation, builder.build(), null);
+        if (resultSendMessage != null && resultSendMessage.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
+            System.out.println("send message success");
+        } else {
+            System.out.println("send message failure");
+            System.exit(-1);
+        }
+
+        IMResult<OutputMessageData> outputMessageDataIMResult = MessageAdmin.getMessage(resultSendMessage.result.getMessageUid());
+        if(outputMessageDataIMResult != null && outputMessageDataIMResult.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS && outputMessageDataIMResult.getResult().getMessageId() == resultSendMessage.getResult().getMessageUid()) {
+            System.out.println("get message success");
+        } else {
+            System.out.println("get message failure");
+            System.exit(-1);
+        }
 
         IMResult<Void> voidIMResult = MessageAdmin.recallMessage("user1", resultSendMessage.getResult().getMessageUid());
         if (voidIMResult != null && voidIMResult.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
@@ -713,6 +748,31 @@ public class Main {
                 System.out.println("Success");
             } else {
                 System.out.println("failure");
+            }
+
+            IMResult<OutputTimestamp> timestampResult = MessageAdmin.getConversationReadTimestamp("57gqmws2k", new Conversation(0, "admin", 0));
+            if(timestampResult != null && timestampResult.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
+                System.out.println("Get conversation read time success");
+            } else {
+                System.out.println("Get conversation read time failure");
+            }
+
+            timestampResult = MessageAdmin.getMessageDelivery("57gqmws2k");
+            if(timestampResult != null && timestampResult.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
+                System.out.println("Get message delivery success");
+            } else {
+                System.out.println("Get message delivery failure");
+            }
+
+            conversation = new Conversation();
+            conversation.setTarget("user1");
+            conversation.setType(ProtoConstants.ConversationType.ConversationType_Private);
+            conversation.setLine(0);
+            IMResult<Void> clearConversationResult = MessageAdmin.clearConversation("user2", conversation);
+            if (clearConversationResult != null && clearConversationResult.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
+                System.out.println("clear conversation success");
+            } else {
+                System.out.println("clear conversation failure");
             }
         }
 
@@ -777,8 +837,8 @@ public class Main {
 
         IMResult<OutputGetChannelInfo> resultGetChannel = GeneralAdmin.getChannelInfo(inputCreateChannel.getTargetId());
         if(resultGetChannel != null && resultGetChannel.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS
-                && resultGetChannel.getResult().getName().equals(channelName)
-                && resultGetChannel.getResult().getOwner().equals(channelOwner)) {
+            && resultGetChannel.getResult().getName().equals(channelName)
+            && resultGetChannel.getResult().getOwner().equals(channelOwner)) {
             System.out.println("success");
         } else {
             System.out.println("get channel failure");
@@ -857,6 +917,7 @@ public class Main {
             System.exit(-1);
         }
 
+        Thread.sleep(1000);
         getChatroomInfoIMResult = ChatroomAdmin.getChatroomInfo(chatroomId);
         if (getChatroomInfoIMResult != null && getChatroomInfoIMResult.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS && getChatroomInfoIMResult.getResult().getState() == ProtoConstants.ChatroomState.Chatroom_State_End) {
             System.out.println("chatroom destroyed!");
@@ -992,8 +1053,8 @@ public class Main {
         //****  机器人API
         //***********************************************
 
-        IMResult<InputOutputUserInfo> userInfoIMResult = robotService.getProfile(robotId);
-        if(userInfoIMResult != null && userInfoIMResult.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
+        IMResult<OutputRobot> robotProfileIMResult = robotService.getProfile();
+        if(robotProfileIMResult != null && robotProfileIMResult.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
             System.out.println("get profile success");
         } else {
             System.out.println("get profile failure");
@@ -1008,8 +1069,8 @@ public class Main {
             System.out.println("modify profile failure");
             System.exit(-1);
         }
-        userInfoIMResult = robotService.getProfile(robotId);
-        if(userInfoIMResult != null && userInfoIMResult.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS && displayName.equals(userInfoIMResult.getResult().getDisplayName())) {
+        robotProfileIMResult = robotService.getProfile();
+        if(robotProfileIMResult != null && robotProfileIMResult.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS && displayName.equals(robotProfileIMResult.getResult().getDisplayName())) {
             System.out.println("get profile success");
         } else {
             System.out.println("get profile failure");
@@ -1134,8 +1195,8 @@ public class Main {
         }
 
         PojoGroupMember m = new PojoGroupMember();
-        m.setMember_id("user1");
-        m.setAlias("hello user1");
+        m.setMember_id("user0");
+        m.setAlias("hello user0");
 
         voidIMResult = robotService.addGroupMembers(groupInfo.getTarget_id(), Arrays.asList(m), null, null);
         if (voidIMResult != null && voidIMResult.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
@@ -1177,6 +1238,9 @@ public class Main {
                 System.out.println("cancel group manager failure");
                 System.exit(-1);
             }
+
+            OutputApplicationConfigData config = robotService.getApplicationSignature();
+            System.out.println(config);
         }
 
 
@@ -1302,7 +1366,11 @@ public class Main {
         inputCreateChannel.setName("testChannel");
         inputCreateChannel.setOwner("userId1");
         String secret = "channelsecret";
+        String channelId = "channelId123";
         inputCreateChannel.setSecret(secret);
+        inputCreateChannel.setTargetId(channelId);
+        inputCreateChannel.setAuto(1);
+        inputCreateChannel.setCallback("http://192.168.1.81:8088/wf/channelId123");
         inputCreateChannel.setState(Channel_State_Mask_FullInfo | Channel_State_Mask_Unsubscribed_User_Access | Channel_State_Mask_Active_Subscribe | Channel_State_Mask_Message_Unsubscribed);
         IMResult<OutputCreateChannel> resultCreateChannel = GeneralAdmin.createChannel(inputCreateChannel);
         if (resultCreateChannel != null && resultCreateChannel.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
@@ -1314,67 +1382,84 @@ public class Main {
 
 
         //2. 初始化api，注意端口是80，不是18080
-        ChannelServiceApi channelServiceApi = new ChannelServiceApi(IMUrl, resultCreateChannel.getResult().getTargetId(), secret);
+        ChannelServiceApi channelServiceApi = new ChannelServiceApi(IMUrl, channelId, secret);
 
 
-
-        if (commercialServer) {
-            //3. 测试channel api功能
-            IMResult<Void> resultVoid = channelServiceApi.subscribe("userId2");
-            if (resultVoid != null && resultVoid.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
-                System.out.println("subscribe success");
-            } else {
-                System.out.println("subscribe failure");
-                System.exit(-1);
-            }
-
-            resultVoid = channelServiceApi.subscribe("userId3");
-            if (resultVoid != null && resultVoid.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
-                System.out.println("subscribe done");
-            } else {
-                System.out.println("subscribe failure");
-                System.exit(-1);
-            }
-
-            IMResult<OutputStringList> resultStringList = channelServiceApi.getSubscriberList();
-            if (resultStringList != null && resultStringList.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS && resultStringList.getResult().getList().contains("userId2") && resultStringList.getResult().getList().contains("userId3")) {
-                System.out.println("get subscriber done");
-            } else {
-                System.out.println("get subscriber failure");
-                System.exit(-1);
-            }
-
-            resultVoid = channelServiceApi.unsubscribe("userId2");
-            if (resultVoid != null && resultVoid.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
-                System.out.println("unsubscriber done");
-            } else {
-                System.out.println("unsubscriber failure");
-                System.exit(-1);
-            }
-
-            resultStringList = channelServiceApi.getSubscriberList();
-            if (resultStringList != null && resultStringList.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS && resultStringList.getResult().getList().contains("userId3") && !resultStringList.getResult().getList().contains("userId2")) {
-                System.out.println("get subscriber done");
-            } else {
-                System.out.println("get subscriber failure");
-                System.exit(-1);
-            }
-
-            IMResult<InputOutputUserInfo> resultGetUserInfo1 = channelServiceApi.getUserInfo("userId3");
-            if (resultGetUserInfo1 != null && resultGetUserInfo1.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
-                System.out.println("get user info success");
-            } else {
-                System.out.println("get user info failure");
-                System.exit(-1);
-            }
+        //3. 测试channel api功能
+        IMResult<Void> resultVoid = channelServiceApi.subscribe("userId2");
+        if (resultVoid != null && resultVoid.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
+            System.out.println("subscribe success");
+        } else {
+            System.out.println("subscribe failure");
+            System.exit(-1);
         }
 
+        resultVoid = channelServiceApi.subscribe("userId3");
+        if (resultVoid != null && resultVoid.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
+            System.out.println("subscribe done");
+        } else {
+            System.out.println("subscribe failure");
+            System.exit(-1);
+        }
+
+        resultVoid = GeneralAdmin.subscribeChannel(channelId, "userId4");
+        if (resultVoid != null && resultVoid.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
+            System.out.println("subscribe done");
+        } else {
+            System.out.println("subscribe failure");
+            System.exit(-1);
+        }
+
+        IMResult<OutputStringList> resultStringList = channelServiceApi.getSubscriberList();
+        if (resultStringList != null && resultStringList.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS && resultStringList.getResult().getList().contains("userId2") && resultStringList.getResult().getList().contains("userId3") && resultStringList.getResult().getList().contains("userId4")) {
+            System.out.println("get subscriber done");
+        } else {
+            System.out.println("get subscriber failure");
+            System.exit(-1);
+        }
+
+        resultVoid = channelServiceApi.unsubscribe("userId2");
+        if (resultVoid != null && resultVoid.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
+            System.out.println("unsubscriber done");
+        } else {
+            System.out.println("unsubscriber failure");
+            System.exit(-1);
+        }
+
+        resultStringList = channelServiceApi.getSubscriberList();
+        if (resultStringList != null && resultStringList.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS && resultStringList.getResult().getList().contains("userId3") && !resultStringList.getResult().getList().contains("userId2")) {
+            System.out.println("get subscriber done");
+        } else {
+            System.out.println("get subscriber failure");
+            System.exit(-1);
+        }
+
+        IMResult<InputOutputUserInfo> resultGetUserInfo1 = channelServiceApi.getUserInfo("userId3");
+        if (resultGetUserInfo1 != null && resultGetUserInfo1.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
+            System.out.println("get user info success");
+        } else {
+            System.out.println("get user info failure");
+            System.exit(-1);
+        }
 
         MessagePayload payload = new MessagePayload();
         payload.setType(1);
         payload.setSearchableContent("hello world");
 
-        IMResult<SendMessageResult> resultSendMessage = channelServiceApi.sendMessage(0, null,payload);
+        IMResult<SendMessageResult> resultSendMessage = channelServiceApi.sendMessage(0, null, payload);
+        if (resultSendMessage != null && resultSendMessage.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
+            System.out.println("send message to all the subscriber success");
+        } else {
+            System.out.println("send message to all the subscriber  failure");
+            System.exit(-1);
+        }
+
+        ArticleContent articleContent = new ArticleContent("article1", "https://media.wfcoss.cn/channel-assets/20220816/2dd76540daa9444dae44e942aa1c2bbc.png", "这是一个测试文章", "测试一下文章的功能", "https://mp.weixin.qq.com/s/W6tanLbALd3qqZM8r3MTgA", true);
+        articleContent.addSubArticle("article2", "https://media.wfcoss.cn/channel-assets/20220816/2dd76540daa9444dae44e942aa1c2bbc.png", "这是第二个测试文章", "测试一下文章的功能", "https://mp.weixin.qq.com/s/W6tanLbALd3qqZM8r3MTgA", false);
+        articleContent.addSubArticle("article3", "https://media.wfcoss.cn/channel-assets/20220816/2dd76540daa9444dae44e942aa1c2bbc.png", "这是第三个测试文章", "测试一下文章的功能", "https://mp.weixin.qq.com/s/W6tanLbALd3qqZM8r3MTgA", false);
+        payload = articleContent.toPayload();
+
+        resultSendMessage = channelServiceApi.sendMessage(0, null, payload);
         if (resultSendMessage != null && resultSendMessage.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
             System.out.println("send message to all the subscriber success");
         } else {
@@ -1392,23 +1477,58 @@ public class Main {
             System.exit(-1);
         }
 
-        if (commercialServer) {
-            IMResult<Void> voidIMResult = channelServiceApi.modifyChannelInfo(ProtoConstants.ModifyChannelInfoType.Modify_Channel_Desc, "this is a test channel, update at:" + new Date().toString());
-            if (voidIMResult != null && voidIMResult.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
-                System.out.println("modify channel profile success");
-            } else {
-                System.out.println("modify channel profile failure");
-                System.exit(-1);
-            }
-
-            IMResult<OutputGetChannelInfo> outputGetChannelInfoIMResult = channelServiceApi.getChannelInfo();
-            if (outputGetChannelInfoIMResult != null && outputGetChannelInfoIMResult.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
-                System.out.println("get channel info success");
-            } else {
-                System.out.println("get channel info failure");
-                System.exit(-1);
-            }
+        IMResult<Void> voidIMResult = channelServiceApi.modifyChannelInfo(ProtoConstants.ModifyChannelInfoType.Modify_Channel_Desc, "this is a test channel, update at:" + new Date().toString());
+        if (voidIMResult != null && voidIMResult.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
+            System.out.println("modify channel profile success");
+        } else {
+            System.out.println("modify channel profile failure");
+            System.exit(-1);
         }
+
+        List<OutputGetChannelInfo.OutputMenu> menus = new ArrayList<>();
+        OutputGetChannelInfo.OutputMenu menu1 = new OutputGetChannelInfo.OutputMenu();
+        menu1.menuId = UUID.randomUUID().toString();
+        menu1.type = "view";
+        menu1.name = "一级菜单1";
+        menu1.key = "key1";
+        menu1.url = "http://www.baidu.com";
+        menus.add(menu1);
+
+        OutputGetChannelInfo.OutputMenu menu2 = new OutputGetChannelInfo.OutputMenu();
+        menu2.menuId = UUID.randomUUID().toString();
+        menu2.type = "view";
+        menu2.name = "一级菜单2";
+        menu2.key = "key2";
+        menu2.url = "http://www.sohu.com";
+        menu2.subMenus = new ArrayList<>();
+        menus.add(menu2);
+
+        OutputGetChannelInfo.OutputMenu menu21 = new OutputGetChannelInfo.OutputMenu();
+        menu21.menuId = UUID.randomUUID().toString();
+        menu21.type = "click";
+        menu21.name = "二级菜单21";
+        menu21.key = "key21";
+        menu21.url = "http://www.sohu.com";
+        menu2.subMenus.add(menu21);
+
+        String menuStr = new GsonBuilder().disableHtmlEscaping().create().toJson(menus);
+        voidIMResult = channelServiceApi.modifyChannelInfo(ProtoConstants.ModifyChannelInfoType.Modify_Channel_Menu, menuStr);
+        if (voidIMResult != null && voidIMResult.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
+            System.out.println("modify channel menu success");
+        } else {
+            System.out.println("modify channel menu failure");
+            System.exit(-1);
+        }
+
+        IMResult<OutputGetChannelInfo> outputGetChannelInfoIMResult = channelServiceApi.getChannelInfo();
+        if (outputGetChannelInfoIMResult != null && outputGetChannelInfoIMResult.getErrorCode() == ErrorCode.ERROR_CODE_SUCCESS) {
+            System.out.println("get channel info success");
+        } else {
+            System.out.println("get channel info failure");
+            System.exit(-1);
+        }
+        OutputApplicationConfigData config = channelServiceApi.getApplicationSignature();
+        System.out.println(config);
     }
     static void testSensitiveApi() throws Exception {
         List<String> words = Arrays.asList("a","b","c");
@@ -1522,20 +1642,28 @@ public class Main {
             System.out.println("conference list " + listResult.getResult().conferenceInfoList);
         }
 
-        IMResult<Void> createResult = ConferenceAdmin.createRoom("helloroomid", "hello room description", "123456", 9, false, 0, false);
-        if(createResult == null || createResult.getErrorCode() != ErrorCode.ERROR_CODE_SUCCESS) {
+        IMResult<Void> voidIMResult = ConferenceAdmin.createRoom("helloroomid", "hello room description", "123456", 9, false, 0, false, true);
+        if(voidIMResult == null || voidIMResult.getErrorCode() != ErrorCode.ERROR_CODE_SUCCESS) {
             System.out.println("create conference failure");
             System.exit(-1);
         } else {
             System.out.println("create conference");
         }
 
-        createResult = ConferenceAdmin.createRoom("helloroomid2", "hello room description advanced", "123456", 20, true, 0, false);
-        if(createResult == null || createResult.getErrorCode() != ErrorCode.ERROR_CODE_SUCCESS) {
+        voidIMResult = ConferenceAdmin.createRoom("helloroomid2", "hello room description advanced", "123456", 20, true, 0, false, true);
+        if(voidIMResult == null || voidIMResult.getErrorCode() != ErrorCode.ERROR_CODE_SUCCESS) {
             System.out.println("create conference failure");
             System.exit(-1);
         } else {
             System.out.println("create conference");
+        }
+
+        voidIMResult = ConferenceAdmin.enableRecording("helloroomid2", true, true);
+        if(voidIMResult == null || voidIMResult.getErrorCode() != ErrorCode.ERROR_CODE_SUCCESS) {
+            System.out.println("recording conference failure");
+            System.exit(-1);
+        } else {
+            System.out.println("recording conference success");
         }
 
         listResult = ConferenceAdmin.listConferences();

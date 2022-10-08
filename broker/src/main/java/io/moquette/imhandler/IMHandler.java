@@ -25,6 +25,7 @@ import io.netty.util.internal.StringUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import cn.wildfirechat.common.ErrorCode;
+import win.liyufan.im.GsonUtil;
 import win.liyufan.im.RateLimiter;
 import win.liyufan.im.Utility;
 
@@ -39,6 +40,8 @@ import java.util.*;
 import static cn.wildfirechat.common.ErrorCode.ERROR_CODE_OVER_FREQUENCY;
 import static cn.wildfirechat.common.ErrorCode.ERROR_CODE_SUCCESS;
 import static io.moquette.BrokerConstants.CLIENT_REQUEST_RATE_LIMIT;
+import static win.liyufan.im.IMTopic.GetUserSettingTopic;
+import static win.liyufan.im.IMTopic.PullMessageTopic;
 
 /**
  * 请求处理接口<br>
@@ -139,7 +142,7 @@ abstract public class IMHandler<T> {
 //         }
 
         //json ?
-        return (T)(new Gson().fromJson(new String(bytes), dataCls));
+        return (T)(GsonUtil.gson.fromJson(new String(bytes), dataCls));
     }
 
     public static void init(IMessagesStore ms, ISessionsStore ss, MessagesPublisher p, ThreadPoolExecutorWrapper businessExecutor, Server server) {
@@ -162,18 +165,17 @@ abstract public class IMHandler<T> {
         mLimitCounter = new RateLimiter(5, clientRateLimit);
     }
 
+    boolean isNotLimitTopic(String topic) {
+        if (PullMessageTopic.equals(topic)
+            || GetUserSettingTopic.equals(topic)) {
+            return true;
+        }
+        return false;
+    }
 
     public ErrorCode preAction(String clientID, String fromUser, String topic, Qos1PublishHandler.IMCallback callback, ProtoConstants.RequestSourceType requestSourceType) {
         LOG.info("imHandler fromUser={}, clientId={}, topic={}", fromUser, clientID, topic);
-        if(requestSourceType == ProtoConstants.RequestSourceType.Request_From_User && !mLimitCounter.isGranted(clientID + fromUser + topic)) {
-            ByteBuf ackPayload = Unpooled.buffer();
-            ackPayload.ensureWritable(1).writeByte(ERROR_CODE_OVER_FREQUENCY.getCode());
-            try {
-                callback.onIMHandled(ERROR_CODE_OVER_FREQUENCY, ackPayload);
-            } catch (Exception e) {
-                e.printStackTrace();
-                Utility.printExecption(LOG, e);
-            }
+        if(requestSourceType == ProtoConstants.RequestSourceType.Request_From_User && !isNotLimitTopic(topic) && !mLimitCounter.isGranted(clientID + fromUser + topic)) {
             return ErrorCode.ERROR_CODE_OVER_FREQUENCY;
         }
         return ErrorCode.ERROR_CODE_SUCCESS;

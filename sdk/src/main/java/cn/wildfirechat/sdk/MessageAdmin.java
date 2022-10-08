@@ -19,6 +19,9 @@ public class MessageAdmin {
         messageData.setConv(conversation);
         messageData.setPayload(payload);
         messageData.setToUsers(toUsers);
+        if (payload.getType() == 1 && (payload.getSearchableContent() == null || payload.getSearchableContent().isEmpty())) {
+            System.out.println("Payload错误，Payload格式应该跟客户端消息encode出来的Payload对齐，这样客户端才能正确识别。比如文本消息，文本需要放到searchableContent属性。请与客户端同事确认Payload的格式，或则去 https://gitee.com/wfchat/android-chat/tree/master/client/src/main/java/cn/wildfirechat/message 找到消息encode的实现方法！");
+        }
         return AdminHttpUtils.httpJsonPost(path, messageData, SendMessageResult.class);
     }
 
@@ -37,6 +40,12 @@ public class MessageAdmin {
         return AdminHttpUtils.httpJsonPost(path, deleteMessageData, Void.class);
     }
 
+    public static IMResult<Void> clearUserMessages(String userId, Conversation conversation, long fromTime, long toTime) throws Exception {
+        String path = APIPath.Msg_Clear_By_User;
+        InputClearUserMessages clearUserMessages = new InputClearUserMessages(userId, conversation, fromTime, toTime);
+        return AdminHttpUtils.httpJsonPost(path, clearUserMessages, Void.class);
+    }
+
     public static IMResult<Void> updateMessageContent(String operator, long messageUid, MessagePayload payload, boolean distribute) throws Exception {
         String path = APIPath.Msg_Update;
         UpdateMessageContentData updateMessageContentData = new UpdateMessageContentData();
@@ -48,7 +57,25 @@ public class MessageAdmin {
         return AdminHttpUtils.httpJsonPost(path, updateMessageContentData, Void.class);
     }
 
+    public static IMResult<Void> clearConversation(String userId, Conversation conversation) throws Exception {
+        String path = APIPath.Conversation_Delete;
+        InputUserConversation input = new InputUserConversation();
+        input.userId = userId;
+        input.conversation = conversation;
+        return AdminHttpUtils.httpJsonPost(path, input, Void.class);
+    }
 
+    /**
+     * 获取单条消息。如果想要更多消息的读取，可以直接读取IM服务的数据库。
+     * @param messageUid
+     * @return
+     * @throws Exception
+     */
+    public static IMResult<OutputMessageData> getMessage(long messageUid) throws Exception {
+        String path = APIPath.Msg_GetOne;
+        InputMessageUid inputMessageUid = new InputMessageUid(messageUid);
+        return AdminHttpUtils.httpJsonPost(path, inputMessageUid, OutputMessageData.class);
+    }
 
     /**
      * 撤回群发或者广播的消息
@@ -92,5 +119,17 @@ public class MessageAdmin {
         messageData.setLine(line);
         messageData.setPayload(payload);
         return AdminHttpUtils.httpJsonPost(path, messageData, MultiMessageResult.class);
+    }
+
+    public static IMResult<OutputTimestamp> getConversationReadTimestamp(String userId, Conversation conversation) throws Exception {
+        String path = APIPath.Msg_ConvRead;
+        InputGetConvReadTime input = new InputGetConvReadTime(userId, conversation.getType(), conversation.getTarget(), conversation.getLine());
+        return AdminHttpUtils.httpJsonPost(path, input, OutputTimestamp.class);
+    }
+
+    public static IMResult<OutputTimestamp> getMessageDelivery(String userId) throws Exception {
+        String path = APIPath.Msg_Delivery;
+        InputUserId input = new InputUserId(userId);
+        return AdminHttpUtils.httpJsonPost(path, input, OutputTimestamp.class);
     }
 }

@@ -83,4 +83,7 @@ public interface IMTopic {
     String KickoffPCClientTopic = "KPCC";
 
     String ClearSessionTopic = "CST";
+
+    String GetApplicationTokenRequestTopic = "ATR";
+    String ApplicationConfigRequestTopic = "ACR";
 }

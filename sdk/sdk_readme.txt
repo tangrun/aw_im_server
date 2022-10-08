@@ -9,7 +9,7 @@
 		<dependency>
 			<groupId>com.google.code.gson</groupId>
 			<artifactId>gson</artifactId>
-			<version>2.8.2</version>
+			<version>2.8.9</version>
 		</dependency>
 
 		<dependency>
@@ -21,7 +21,7 @@
 		<dependency>
 			<groupId>org.apache.httpcomponents</groupId>
 			<artifactId>httpclient</artifactId>
-			<version>4.5.3</version>
+			<version>4.5.13</version>
 		</dependency>
 
 		<dependency>
