@@ -43,6 +43,7 @@ public interface IMTopic {
     String NotifyUserInfoTopic = "UIN";
 
 	String GetQiniuUploadTokenTopic = "GQNUT";
+	String GetMediaUploadTokenTopic = "GMUT";
 
     String AddFriendRequestTopic = "FAR";
     String HandleFriendRequestTopic = "FHR";

@@ -17,8 +17,9 @@ import com.xiaoleilu.loServer.action.UploadFileAction;
 import io.moquette.server.config.MediaServerConfig;
 import io.moquette.spi.impl.Qos1PublishHandler;
 import io.netty.buffer.ByteBuf;
+import win.liyufan.im.IMTopic;
 
-@Handler("GMUT")
+@Handler(IMTopic.GetMediaUploadTokenTopic)
 public class GetMediaUploadTokenHandler extends IMHandler<WFCMessage.GetUploadTokenRequest> {
     @Override
     public ErrorCode action(ByteBuf ackPayload, String clientID, String fromUser, ProtoConstants.RequestSourceType requestSourceType, WFCMessage.GetUploadTokenRequest request, Qos1PublishHandler.IMCallback callback) {
