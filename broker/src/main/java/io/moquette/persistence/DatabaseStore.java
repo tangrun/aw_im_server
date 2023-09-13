@@ -21,14 +21,12 @@ import io.moquette.server.Server;
 import io.moquette.spi.ClientSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import win.liyufan.im.DBUtil;
-import win.liyufan.im.MessageBundle;
-import win.liyufan.im.MessageShardingUtil;
-import win.liyufan.im.Utility;
+import win.liyufan.im.*;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.InetSocketAddress;
 import java.security.MessageDigest;
 import java.sql.*;
 import java.util.*;
@@ -505,12 +503,12 @@ public class DatabaseStore {
     }
 
 
-    void persistMessage(final WFCMessage.Message message, boolean update) {
-        if(message.getContent().getPersistFlag() == Transparent) {
+    void persistMessage(final WFCMessage.Message message, boolean update, InetSocketAddress remoteAddress) {
+        if (message.getContent().getPersistFlag() == Transparent) {
             return;
         }
 
-        mScheduler.execute(()-> {
+        mScheduler.execute(() -> {
             Connection connection = null;
             PreparedStatement statement = null;
             try {
@@ -519,14 +517,14 @@ public class DatabaseStore {
                 String sql;
                 if (disableRemoteMessageSearch) {
                     sql = "insert into " + table +
-                        " (`_mid`, `_from`, `_type`, `_target`, `_line`, `_data`, `_dt`, `_content_type`, `_to`) values(?, ?, ?, ?, ?, ?, ?, ?, ?)" +
+                        " (`_mid`, `_from`, `_type`, `_target`, `_line`, `_data`, `_dt`, `_content_type`, `_to`, `_remote_address_ip`, `_remote_address_port`, `_remote_address_region`) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" +
                         " ON DUPLICATE KEY UPDATE " +
                         "`_data` = ?," +
                         "`_dt` = ?," +
                         "`_content_type` = ?";
                 } else {
                     sql = "insert into " + table +
-                        " (`_mid`, `_from`, `_type`, `_target`, `_line`, `_data`, `_searchable_key`, `_dt`, `_content_type`, `_to`) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" +
+                        " (`_mid`, `_from`, `_type`, `_target`, `_line`, `_data`, `_searchable_key`, `_dt`, `_content_type`, `_to`, `_remote_address_ip`, `_remote_address_port`, `_remote_address_region`) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" +
                         " ON DUPLICATE KEY UPDATE " +
                         "`_data` = ?," +
                         "`_searchable_key` = ?," +
@@ -558,6 +556,20 @@ public class DatabaseStore {
                     }
                 }
                 statement.setString(index++, to);
+                // ip和归属地
+                {
+                    String ip = null;
+                    String port = null;
+                    String region = null;
+                    if (remoteAddress != null) {
+                        ip =  remoteAddress.getAddress().getHostAddress();
+                        port = remoteAddress.getPort() > 0 ? remoteAddress.getPort()+"":null;
+                        region = IPRegionUtil.search(ip);
+                    }
+                    statement.setString(index++,ip);
+                    statement.setString(index++,port);
+                    statement.setString(index++,region);
+                }
 
                 statement.setBlob(index++, blob);
                 if (!disableRemoteMessageSearch) {

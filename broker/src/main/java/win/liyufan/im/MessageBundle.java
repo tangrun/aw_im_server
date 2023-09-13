@@ -11,6 +11,7 @@ package win.liyufan.im;
 import cn.wildfirechat.proto.WFCMessage;
 
 import java.io.Serializable;
+import java.net.InetSocketAddress;
 
 
 public class MessageBundle implements Serializable {
@@ -25,6 +26,7 @@ public class MessageBundle implements Serializable {
 	private String targetId;
 	private WFCMessage.Message message;
 	private long messageId;
+    private InetSocketAddress remoteAddress;
 
     public MessageBundle() {
     }
@@ -75,5 +77,13 @@ public class MessageBundle implements Serializable {
         this.line = message.getConversation().getLine();
         this.message = message;
         this.messageId = message.getMessageId();
+    }
+
+    public InetSocketAddress getRemoteAddress() {
+        return remoteAddress;
+    }
+
+    public void setRemoteAddress(InetSocketAddress remoteAddress) {
+        this.remoteAddress = remoteAddress;
     }
 }

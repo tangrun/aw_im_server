@@ -516,6 +516,7 @@ public class MemoryMessagesStore implements IMessagesStore {
 
 
         MessageBundle messageBundle = new MessageBundle(message.getMessageId(), fromUser, fromClientId, message);
+        messageBundle.setRemoteAddress(ThreadLocalUtil.remoteAddress.get());
         if (message.getContent().getPersistFlag() ==  Transparent) {
             mIMap.put(message.getMessageId(), messageBundle, 10, TimeUnit.SECONDS);
         } else {

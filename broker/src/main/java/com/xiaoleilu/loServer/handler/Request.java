@@ -127,6 +127,10 @@ public class Request {
 		return nettyRequest.method().name();
 	}
 
+    public InetSocketAddress getRemoteAddress() {
+        return new InetSocketAddress(getIp(), 0);
+    }
+
 	/**
 	 * 获得IP地址
 	 * 

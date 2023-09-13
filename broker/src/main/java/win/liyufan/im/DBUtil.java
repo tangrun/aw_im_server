@@ -151,7 +151,7 @@ public class DBUtil {
                 try {
                     long sleepTime;
                     if(ClearDBDebugMode) {
-                        sleepTime = 60 * 1000 - usedTime;
+                        sleepTime = 60 * 1000;
                     } else {
                         sleepTime = 60 * 60 * 1000 - usedTime;
                     }
@@ -197,9 +197,13 @@ public class DBUtil {
     private static long getMaxMidNeedClean() {
         Calendar cal = Calendar.getInstance();
         cal.setTime(new Date());
-        cal.add(Calendar.YEAR, clearHisMsgYear);
-        cal.add(Calendar.MONTH, clearHisMsgMonth);
-        cal.add(Calendar.DATE, clearHisMsgDay);
+        if (ClearDBDebugMode) {
+            cal.add(Calendar.MINUTE, 5);
+        } else {
+            cal.add(Calendar.YEAR, clearHisMsgYear);
+            cal.add(Calendar.MONTH, clearHisMsgMonth);
+            cal.add(Calendar.DATE, clearHisMsgDay);
+        }
         return MessageShardingUtil.getMsgIdFromTimestamp(cal.getTimeInMillis());
     }
 
@@ -220,7 +224,7 @@ public class DBUtil {
         }
 
         String msgTableName = MessageShardingUtil.getMessageTable(MessageShardingUtil.getMsgIdFromTimestamp(System.currentTimeMillis()));
-        clearOneTable(msgTableName);
+        clearOneTable_Backup(msgTableName);
     }
 
     private static void clearOneTable(String tableName) {
@@ -234,7 +238,64 @@ public class DBUtil {
             String sql = "delete from " + tableName + " where _mid <= " + mid;
             statement = connection.prepareStatement(sql);
             int count = statement.executeUpdate();
-            LOG.info("Delete history message {} rows", count);
+            LOG.info("Delete history message {} {} rows", tableName, count);
+        } catch (Exception e) {
+            e.printStackTrace();
+            Utility.printExecption(LOG, e, RDBS_Exception);
+        } finally {
+            DBUtil.closeDB(connection, statement, rs);
+        }
+    }
+
+    private static void clearOneTable_Backup(String tableName) {
+        Connection connection = null;
+        PreparedStatement statement = null;
+        ResultSet rs = null;
+        long mid = getMaxMidNeedClean();
+
+        try {
+            connection = DBUtil.getConnection();
+
+            String sql = "INSERT INTO t_messages_history ( " +
+                "`id`, " +
+                "`_mid`, " +
+                "`_from`, " +
+                "`_type`, " +
+                "`_target`, " +
+                "`_line`, " +
+                "`_data`, " +
+                "`_searchable_key`, " +
+                "`_dt`, " +
+                "`_content_type`, " +
+                "`_to`, " +
+                "`_remote_address_ip`, " +
+                "`_remote_address_port`, " +
+                "`_remote_address_region` " +
+                ") SELECT " +
+                "`id`, " +
+                "`_mid`, " +
+                "`_from`, " +
+                "`_type`, " +
+                "`_target`, " +
+                "`_line`, " +
+                "`_data`, " +
+                "`_searchable_key`, " +
+                "`_dt`, " +
+                "`_content_type`, " +
+                "`_to`, " +
+                "`_remote_address_ip`, " +
+                "`_remote_address_port`, " +
+                "`_remote_address_region` " +
+                "FROM " + tableName +
+                " WHERE _mid <= " + mid + " and _type = 1";
+            statement = connection.prepareStatement(sql);
+            int count = statement.executeUpdate();
+            LOG.info("insert group history message {} {} rows", tableName, count);
+
+            sql = "delete from " + tableName + " where _mid <= " + mid;
+            statement = connection.prepareStatement(sql);
+            count = statement.executeUpdate();
+            LOG.info("Delete history message {} {} rows", tableName, count);
         } catch (Exception e) {
             e.printStackTrace();
             Utility.printExecption(LOG, e, RDBS_Exception);

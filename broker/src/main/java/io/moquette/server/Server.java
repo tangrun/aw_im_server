@@ -48,6 +48,7 @@ import win.liyufan.im.DBUtil;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import win.liyufan.im.IPRegionUtil;
 import win.liyufan.im.MessageShardingUtil;
 import win.liyufan.im.Utility;
 
@@ -246,6 +247,9 @@ public class Server {
 
     public void startServer(IConfig config, List<? extends InterceptHandler> handlers, ISslContextCreator sslCtxCreator,
             IAuthenticator authenticator, IAuthorizator authorizator) throws IOException {
+        final String xdbPath = config.getProperty(IP_REGION_XDB_PATH);
+        IPRegionUtil.init(xdbPath);
+
         if (handlers == null) {
             handlers = Collections.emptyList();
         }

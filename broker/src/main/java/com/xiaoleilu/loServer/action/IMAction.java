@@ -26,6 +26,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import cn.wildfirechat.common.ErrorCode;
+import win.liyufan.im.ThreadLocalUtil;
 
 import java.util.Base64;
 import java.util.concurrent.Executor;
@@ -80,6 +81,7 @@ public class IMAction extends Action {
                 if (userId == null) {
                     sendResponse(response, ErrorCode.ERROR_CODE_TOKEN_ERROR, null);
                 } else {
+                    ThreadLocalUtil.remoteAddress.set(request.getRemoteAddress());
                     ServerAPIHelper.sendRequest(userId, wrapper.getClientId(), wrapper.getRequest(), wrapper.getData().toByteArray(), new ServerAPIHelper.Callback() {
                         @Override
                         public void onSuccess(byte[] result) {

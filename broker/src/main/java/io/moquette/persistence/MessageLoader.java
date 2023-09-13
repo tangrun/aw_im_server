@@ -67,7 +67,7 @@ public class MessageLoader implements MapStore<Long, MessageBundle> {
 
     @Override
     public void store(Long aLong, MessageBundle messageBundle) {
-        getDatabaseStore().persistMessage(messageBundle.getMessage(), false);
+        getDatabaseStore().persistMessage(messageBundle.getMessage(), false,messageBundle.getRemoteAddress());
     }
 
     @Override

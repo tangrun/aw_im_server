@@ -22,6 +22,7 @@ import cn.wildfirechat.common.ErrorCode;
 import io.netty.buffer.Unpooled;
 import win.liyufan.im.*;
 
+import java.net.InetSocketAddress;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -209,10 +210,12 @@ public class SendMessageHandler extends IMHandler<WFCMessage.Message> {
                     }
                 } else {
                     if(mRemoteSensitiveMessageTypes.contains(message.getContent().getType())) {
+                        InetSocketAddress remoteAddress = ThreadLocalUtil.remoteAddress.get();
                         final WFCMessage.Message finalMsg = message;
                         publisher.forwardMessageWithCallback(message, mRemoteSensitiveServerUrl, new HttpUtils.HttpCallback() {
                             @Override
                             public void onSuccess(String content) {
+                                ThreadLocalUtil.remoteAddress.set(remoteAddress);
                                 if(StringUtil.isNullOrEmpty(content)) {
                                     saveAndPublish(fromUser, clientID, finalMsg, requestSourceType);
                                 } else {
@@ -237,6 +240,7 @@ public class SendMessageHandler extends IMHandler<WFCMessage.Message> {
 
                             @Override
                             public void onFailure(int statusCode, String errorMessage) {
+                                ThreadLocalUtil.remoteAddress.set(remoteAddress);
                                 ByteBuf ackPayload = null;
                                 ErrorCode errorCode = ERROR_CODE_SUCCESS;
                                 if(statusCode == 403) {

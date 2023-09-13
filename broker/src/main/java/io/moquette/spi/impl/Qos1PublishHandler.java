@@ -23,6 +23,7 @@ import static io.netty.handler.codec.mqtt.MqttQoS.AT_MOST_ONCE;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.util.*;
 import java.util.zip.GZIPOutputStream;
 
@@ -57,10 +58,7 @@ import io.netty.handler.codec.mqtt.MqttFixedHeader;
 import io.netty.handler.codec.mqtt.MqttMessageType;
 import io.netty.handler.codec.mqtt.MqttPublishMessage;
 import cn.wildfirechat.common.ErrorCode;
-import win.liyufan.im.GsonUtil;
-import win.liyufan.im.IMTopic;
-import win.liyufan.im.RateLimiter;
-import win.liyufan.im.Utility;
+import win.liyufan.im.*;
 import win.liyufan.im.extended.mqttmessage.ModifiedMqttPubAckMessage;
 
 public class Qos1PublishHandler extends QosPublishHandler {
@@ -252,6 +250,7 @@ public class Qos1PublishHandler extends QosPublishHandler {
         
         MemorySessionStore.Session session = m_sessionStore.getSession(clientID);
         payloadContent = AES.AESDecrypt(payloadContent, session.getSecret(), true);
+        ThreadLocalUtil.remoteAddress.set(channel.remoteAddress() instanceof InetSocketAddress ? (InetSocketAddress) channel.remoteAddress() : null);
         imHandler(clientID, username, imtopic, payloadContent, (errorCode, ackPayload) -> sendPubAck(clientID, messageID, ackPayload, errorCode), ProtoConstants.RequestSourceType.Request_From_User);
     }
 

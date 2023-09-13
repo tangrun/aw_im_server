@@ -20,6 +20,8 @@ import java.io.File;
 
 public final class BrokerConstants {
 
+    public static final String IP_REGION_XDB_PATH = "ip_region_xdb_path";
+
     public static final String LAUNCH_TYPE = "launcher.type";
 
     public static final String FILE_SERVER_TOKEN_KEY = "file.server.token.key";

@@ -27,6 +27,7 @@ import org.slf4j.LoggerFactory;
 import cn.wildfirechat.common.ErrorCode;
 import win.liyufan.im.GsonUtil;
 import win.liyufan.im.RateLimiter;
+import win.liyufan.im.ThreadLocalUtil;
 import win.liyufan.im.Utility;
 
 import java.lang.annotation.Retention;
@@ -35,6 +36,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
+import java.net.InetSocketAddress;
 import java.util.*;
 
 import static cn.wildfirechat.common.ErrorCode.ERROR_CODE_OVER_FREQUENCY;
@@ -181,7 +183,8 @@ abstract public class IMHandler<T> {
         return ErrorCode.ERROR_CODE_SUCCESS;
     }
 
-	public void doHandler(String clientID, String fromUser, String topic, byte[] payloadContent, Qos1PublishHandler.IMCallback callback, ProtoConstants.RequestSourceType requestSourceType) {
+    public void doHandler(String clientID, String fromUser, String topic, byte[] payloadContent, Qos1PublishHandler.IMCallback callback, ProtoConstants.RequestSourceType requestSourceType) {
+        InetSocketAddress remoteAddress = ThreadLocalUtil.remoteAddress.get();
         m_imBusinessExecutor.execute(() -> {
             Qos1PublishHandler.IMCallback callbackWrapper = new Qos1PublishHandler.IMCallback() {
                 @Override
@@ -201,6 +204,8 @@ abstract public class IMHandler<T> {
 
                 try {
                     LOG.debug("execute handler for topic {}", topic);
+                    // 这里切换到线程池运行 重新设置一下
+                    ThreadLocalUtil.remoteAddress.set(remoteAddress);
                     errorCode = action(ackPayload, clientID, fromUser, requestSourceType, getDataObject(payloadContent), callbackWrapper);
                 } catch (IllegalAccessException e) {
                     e.printStackTrace();
