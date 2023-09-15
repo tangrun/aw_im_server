@@ -421,7 +421,11 @@ public class HttpFileServerHandler extends SimpleChannelInboundHandler<FullHttpR
         }
 
         // 转换为绝对路径
-        return FileUtil.file(ServerSetting.getRoot(), httpPath);
+        File file = FileUtil.file(ServerSetting.getRoot(), httpPath);
+        if (!file.exists()) {
+            file = FileUtil.file(ServerSetting.getRoot(), "/backup/" + httpPath);
+        }
+        return file;
     }
 
 

@@ -31,6 +31,10 @@ public final class BrokerConstants {
     public static final String FILE_SERVER_UPLOAD_URL = "file.server.upload.url";
     public static final String FILE_SERVER_UPLOAD_PORT = "file.server.upload.port";
     public static final String FILE_SERVER_DOWNLOAD_URL = "file.server.download.url";
+    public static final String FILE_SERVER_AUTO_BACKUP_GROUP_FILE = "file.server.auto_backup_group_file";
+    public static final String FILE_SERVER_AUTO_CLEAR_FILE = "file.server.auto_clear_file";
+    public static final String FILE_SERVER_NORMAL_FILE_SAVE_TIME = "file.server.normal_file_save_time";
+    public static final String FILE_SERVER_GROUP_BACKUP_FILE_SAVE_TIME = "file.server.group_backup_file_save_time";
 
 
     public static final String INTERCEPT_HANDLER_PROPERTY_NAME = "intercept.handler";

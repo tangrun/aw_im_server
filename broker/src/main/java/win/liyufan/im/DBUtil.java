@@ -238,7 +238,8 @@ public class DBUtil {
             String sql = "delete from " + tableName + " where _mid <= " + mid;
             statement = connection.prepareStatement(sql);
             int count = statement.executeUpdate();
-            LOG.info("Delete history message {} {} rows", tableName, count);
+            if (count != 0)
+                LOG.info("Delete history message {} {} rows", tableName, count);
         } catch (Exception e) {
             e.printStackTrace();
             Utility.printExecption(LOG, e, RDBS_Exception);
@@ -290,12 +291,14 @@ public class DBUtil {
                 " WHERE _mid <= " + mid + " and _type = 1";
             statement = connection.prepareStatement(sql);
             int count = statement.executeUpdate();
-            LOG.info("insert group history message {} {} rows", tableName, count);
+            if (count>0)
+                LOG.info("insert group history message {} {} rows", tableName, count);
 
             sql = "delete from " + tableName + " where _mid <= " + mid;
             statement = connection.prepareStatement(sql);
             count = statement.executeUpdate();
-            LOG.info("Delete history message {} {} rows", tableName, count);
+            if (count>0)
+                LOG.info("Delete history message {} {} rows", tableName, count);
         } catch (Exception e) {
             e.printStackTrace();
             Utility.printExecption(LOG, e, RDBS_Exception);

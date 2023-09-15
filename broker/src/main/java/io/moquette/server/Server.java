@@ -23,6 +23,7 @@ import com.hazelcast.config.ClasspathXmlConfig;
 import com.hazelcast.config.Config;
 import com.hazelcast.config.FileSystemXmlConfig;
 import com.hazelcast.core.*;
+import com.xiaoleilu.loServer.FileBackupServer;
 import com.xiaoleilu.loServer.LoFileServer;
 import com.xiaoleilu.loServer.LoServer;
 import com.xiaoleilu.loServer.ServerSetting;
@@ -157,7 +158,10 @@ public class Server {
                 e.printStackTrace();
                 Utility.printExecption(LOG, e);
             }
+            FileBackupServer fileBackupServer = new FileBackupServer();
+            fileBackupServer.start(config);
             Runtime.getRuntime().addShutdownHook(new Thread(loFileServer::shutdown));
+            Runtime.getRuntime().addShutdownHook(new Thread(fileBackupServer::shutdown));
             System.out.println("file server start success...");
         }
     }
