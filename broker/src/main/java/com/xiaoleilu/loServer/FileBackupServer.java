@@ -217,21 +217,37 @@ public class FileBackupServer {
         PreparedStatement statement = null;
         ResultSet rs = null;
         long startMid = backupGroupFileStartMid;
-        long endTime = System.currentTimeMillis();
-        long endMid = MessageShardingUtil.getMsgIdFromTimestamp(endTime);
         String tableName = MessageShardingUtil.getMessageTable(startMid);
+        long endMid;
+
+        {
+            long startT = MessageShardingUtil.getTimestampFromMsgId(startMid);
+            Calendar startC = Calendar.getInstance();
+            startC.setTimeInMillis(startT);
+
+            long endT = System.currentTimeMillis();
+            Calendar endC = Calendar.getInstance();
+            endC.setTimeInMillis(endT);
+            if (startC.get(Calendar.MONTH) != endC.get(Calendar.MONTH)){
+                // 分表是按月来的 避免跨表时 第二张表 部分消息查不到
+                endC.set(Calendar.DAY_OF_MONTH,0);
+                endC.set(Calendar.HOUR_OF_DAY,0);
+                endC.set(Calendar.MINUTE,0);
+                endC.set(Calendar.SECOND,0);
+                endC.set(Calendar.MILLISECOND,0);
+                endT = endC.getTimeInMillis();
+            }
+            endMid = MessageShardingUtil.getMsgIdFromTimestamp(endT);
+        }
 
         try {
             connection = DBUtil.getConnection();
-            String sql = "SELECT _mid, _data from " + tableName + " where _type = 1 and _content_type in (2,3,5,6) and _mid > " + startMid + " and _mid <= " + endMid;
+            String sql = "SELECT _data from " + tableName + " where _type = 1 and _content_type in (2,3,5,6) and _mid >= " + startMid + " and _mid < " + endMid;
             statement = connection.prepareStatement(sql);
             rs = statement.executeQuery();
 
-            int rowCount = 0;
             while (rs.next()) {
-                rowCount++;
                 int index = 1;
-                long mid = rs.getLong(index++);
                 Blob blob = rs.getBlob(index++);
 
                 WFCMessage.MessageContent messageContent = WFCMessage.MessageContent.parseFrom(encryptMessageContent(toByteArray(blob.getBinaryStream()), false));
@@ -256,14 +272,10 @@ public class FileBackupServer {
                         continue;
                     }
                     LOG.info("backup file to {}=>{}", sourceFile, targetFile);
-//                    FileUtils.copyFile(sourceFile, targetFile);
                     FileUtils.moveFile(sourceFile, targetFile);
                 }
-                backupGroupFileStartMid = mid;
             }
-            if (rowCount == 0) {
-                backupGroupFileStartMid = endMid;
-            }
+            backupGroupFileStartMid = endMid;
         } catch (Exception e) {
             e.printStackTrace();
             Utility.printExecption(LOG, e, RDBS_Exception);

@@ -113,6 +113,12 @@ public class MessageShardingUtil {
         }
         return calendar;
     }
+
+    public static long getTimestampFromMsgId(long mid){
+        mid >>= (nodeIdWidth + rotateIdWidth);
+        return mid + T201801010000;
+    }
+
     public static long getMsgIdFromTimestamp(long timestamp) {
         long id = timestamp - T201801010000;
 
