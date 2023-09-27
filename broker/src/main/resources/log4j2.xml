@@ -20,8 +20,8 @@
         </console>
 
         <RollingRandomAccessFile name="RollingFileInfo" immediateFlush="false"
-                                 fileName="${MSG_LOG_HOME}/wildfirechat.log"
-                                 filePattern="${MSG_LOG_HOME}/backup/wildfirechat.%d{yyyyMMddHH}.zip">
+                                 fileName="${MSG_LOG_HOME}/wildfirechat_info.log"
+                                 filePattern="${MSG_LOG_HOME}/backup/wildfirechat_info.%d{yyyyMMddHH}.zip">
             <Filters>
                 <ThresholdFilter level="INFO" onMatch="ACCEPT" onMismatch="DENY"/>
             </Filters>
@@ -35,7 +35,7 @@
 
             <DefaultRolloverStrategy max="24">
                 <Delete basePath="${MSG_LOG_HOME}" maxDepth="2">
-                    <IfFileName glob="*/wildfirechat.*.zip" />
+                    <IfFileName glob="*/wildfirechat_info.*.zip" />
                     <IfLastModified age="24H" />
                 </Delete>
             </DefaultRolloverStrategy>
@@ -115,7 +115,15 @@
         <!--        <logger name="org.springframework" level="INFO"></logger>-->
         <!--        <logger name="org.mybatis" level="INFO"></logger>-->
         <!-- Root节点用来指定项目的根日志，如果没有单独指定Logger，那么就会默认使用该Root日志输出 -->
-        <logger name="messageLogger" level="debug"/>
+        <logger name="messageLogger" level="debug" includeLocation="true" additivity="false"/>
+        <!--AsyncLogger :异步日志,LOG4J有三种日志模式,全异步日志,混合模式,同步日志,性能从高到底,线程越多效率越高,也可以避免日志卡死线程情况发生-->
+        <!--additivity="false" : additivity设置事件是否在root logger输出，为了避免重复输出，可以在Logger 标签下设置additivity为”false”-->
+<!--        <AsyncLogger name="AsyncLogger" level="trace" includeLocation="true" additivity="false">-->
+<!--            <appender-ref ref="RollingFileInfo"/>-->
+<!--            <appender-ref ref="RollingFileDebug"/>-->
+<!--            <appender-ref ref="RollingFileWarn"/>-->
+<!--            <appender-ref ref="RollingFileError"/>-->
+<!--        </AsyncLogger>-->
         <root level="info">
             <appender-ref ref="Console"/>
             <appender-ref ref="RollingFileInfo"/>
@@ -123,10 +131,5 @@
             <appender-ref ref="RollingFileWarn"/>
             <appender-ref ref="RollingFileError"/>
         </root>
-        <!--AsyncLogger :异步日志,LOG4J有三种日志模式,全异步日志,混合模式,同步日志,性能从高到底,线程越多效率越高,也可以避免日志卡死线程情况发生-->
-        <!--additivity="false" : additivity设置事件是否在root logger输出，为了避免重复输出，可以在Logger 标签下设置additivity为”false”-->
-        <AsyncLogger name="AsyncLogger" level="trace" includeLocation="true" additivity="false">
-            <appender-ref ref="RollingFileInfo"/>
-        </AsyncLogger>
     </loggers>
 </configuration>
