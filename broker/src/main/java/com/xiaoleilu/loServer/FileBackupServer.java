@@ -35,7 +35,17 @@ import static cn.wildfirechat.common.IMExceptionEvent.EventType.RDBS_Exception;
 public class FileBackupServer {
     private final Logger LOG = LoggerFactory.getLogger(FileBackupServer.class);
     private boolean encryptMessage;
-    private int normalFileSaveTime, groupBackupFileSaveTime;
+    /**
+     * 普通消息文件保存时间
+     */
+    private int normalFileSaveTime;
+    /**
+     * 群聊消息文件保存时间
+     */
+    private int groupBackupFileSaveTime;
+    private boolean clearFile,backupGroupFile;
+    private ScheduledExecutorService executorService;
+    private long backupGroupFileStartMid;
 
     public void start(IConfig config) {
         DBUtil.init(config);
@@ -45,25 +55,21 @@ public class FileBackupServer {
         groupBackupFileSaveTime = Integer.parseInt(config.getProperty(BrokerConstants.FILE_SERVER_GROUP_BACKUP_FILE_SAVE_TIME, "60"));
 
         if ("true".equals(config.getProperty(BrokerConstants.FILE_SERVER_AUTO_BACKUP_GROUP_FILE))) {
-            startBackupGroupFile();
+            backupGroupFile = true;
+            backupGroupFileStartMid = MessageShardingUtil.getMsgIdFromTimestamp(System.currentTimeMillis());
         }
         if ("true".equals(config.getProperty(BrokerConstants.FILE_SERVER_AUTO_CLEAR_FILE))) {
-            startClearFile();
+            clearFile = true;
+        }
+        if (backupGroupFile || clearFile){
+            executorService = Executors.newScheduledThreadPool(1);
+            startDelayTask();
         }
     }
 
-    //region 文件清理
-
-    private ScheduledExecutorService clearFileExecutor;
-
-    private void startClearFile() {
-        clearFileExecutor = Executors.newScheduledThreadPool(1);
-        clearFile();
-    }
-
-    private void clearFile() {
+    private void startDelayTask() {
         Calendar calendar = Calendar.getInstance();
-        calendar.set(Calendar.HOUR_OF_DAY, 2);
+        calendar.set(Calendar.HOUR_OF_DAY, 3);
         calendar.set(Calendar.MINUTE, 0);
         calendar.set(Calendar.SECOND, 0);
         calendar.set(Calendar.MILLISECOND, 0);
@@ -71,72 +77,90 @@ public class FileBackupServer {
             calendar.add(Calendar.DAY_OF_MONTH, 1);
         }
         long delayTime = calendar.getTimeInMillis() - System.currentTimeMillis();
-        LOG.info("clear file task delay {}", Duration.ofMillis(delayTime));
+        LOG.info("file task delay {}", Duration.ofMillis(delayTime));
         if (DBUtil.ClearDBDebugMode) {
             delayTime = 60 * 1000;
         }
-        clearFileExecutor.schedule(new Runnable() {
+        executorService.schedule(new Runnable() {
             @Override
             public void run() {
-                LOG.info("start clear file task delay");
+                if (DBUtil.SystemExiting)return;
 
-                File root = ServerSetting.getRoot();
-
-                File fsDir = new File(root, "fs");
-                File backupDir = new File(root, "backup" + File.separator + "fs");
-
-                try {
-                    clearFile(fsDir, normalFileSaveTime);
-                    clearFile(backupDir, groupBackupFileSaveTime);
-                } catch (Exception e) {
-                    e.printStackTrace();
+                if (backupGroupFile){
+                    LOG.info("Start backupGroupFile");
+                    long start = System.currentTimeMillis();
+                    backupGroupFile();
+                    long usedTime = System.currentTimeMillis() - start;
+                    LOG.info("backupGroupFile use "+usedTime);
+                }
+                if (clearFile){
+                    LOG.info("Start clearFile");
+                    long start = System.currentTimeMillis();
+                    clearFile();
+                    long usedTime = System.currentTimeMillis() - start;
+                    LOG.info("clearFile use "+usedTime);
                 }
 
-                clearFile();
+                startDelayTask();
             }
         }, delayTime, TimeUnit.MILLISECONDS);
     }
 
+    //region 文件清理
+
+    /**
+     * 根据文件路径规则 判断时间 删除
+     */
+    private void clearFile(){
+        LOG.info("start clear file task delay");
+        File root = ServerSetting.getRoot();
+        File fsDir = new File(root, "fs");
+        File backupDir = new File(root, "backup" + File.separator + "fs");
+        clearFile(fsDir, normalFileSaveTime);
+        clearFile(backupDir, groupBackupFileSaveTime);
+    }
+
     private void clearFile(File parentDir, int saveDay) {
         LOG.info("start clear dir {} max day {}", parentDir, saveDay);
-        Calendar calendar = Calendar.getInstance();
-        calendar.add(Calendar.DAY_OF_MONTH, -saveDay);
-
-        String[] yearsList = parentDir.list();
-        if (yearsList == null) {
-            LOG.warn("years list null, {}", parentDir);
-            return;
-        }
-        Calendar calendarTemp = Calendar.getInstance();
-        calendarTemp.set(Calendar.MINUTE, 0);
-        calendarTemp.set(Calendar.SECOND, 0);
-        calendarTemp.set(Calendar.MILLISECOND, 0);
-
         File[] buckets = parentDir.listFiles();
         if (buckets == null) {
             return;
         }
+        Calendar calendar = Calendar.getInstance();
+        calendar.add(Calendar.DAY_OF_MONTH, -saveDay);
+
+        Calendar calendarTemp = Calendar.getInstance();
+        calendarTemp.set(Calendar.MINUTE, 0);
+        calendarTemp.set(Calendar.SECOND, 0);
+        calendarTemp.set(Calendar.MILLISECOND, 0);
         for (File bucket : buckets) {
-            if ("5".equals(bucket.getName()))// 表情包
+            if (!bucket.isDirectory())
                 continue;
-            for (File yearDir : listFilesAndDeleteEmptyDirectory(bucket)) {
-                for (File monthDir : listFilesAndDeleteEmptyDirectory(yearDir)) {
-                    for (File dayDir : listFilesAndDeleteEmptyDirectory(monthDir)) {
-                        for (File hourDir : listFilesAndDeleteEmptyDirectory(dayDir)) {
-                            if (!hourDir.exists() || !hourDir.isDirectory())
-                                continue;
-                            int year = Integer.parseInt(yearDir.getName());
-                            int month = Integer.parseInt(monthDir.getName());
-                            int day = Integer.parseInt(dayDir.getName());
-                            int hour = Integer.parseInt(hourDir.getName());
+            if (
+                "1".equals(bucket.getName()) //图片
+                    || "2".equals(bucket.getName())// 语音
+                    || "3".equals(bucket.getName())// 视频
+                    || "4".equals(bucket.getName())// 文件
+            ) {
+                for (File yearDir : listFilesAndDeleteEmptyDirectory(bucket)) {
+                    for (File monthDir : listFilesAndDeleteEmptyDirectory(yearDir)) {
+                        for (File dayDir : listFilesAndDeleteEmptyDirectory(monthDir)) {
+                            for (File hourDir : listFilesAndDeleteEmptyDirectory(dayDir)) {
+                                if (!hourDir.exists() || !hourDir.isDirectory())
+                                    continue;
+                                int year = Integer.parseInt(yearDir.getName());
+                                int month = Integer.parseInt(monthDir.getName());
+                                int day = Integer.parseInt(dayDir.getName());
+                                int hour = Integer.parseInt(hourDir.getName());
 
-                            calendarTemp.set(Calendar.YEAR, year);
-                            calendarTemp.set(Calendar.MONTH, month - 1);
-                            calendarTemp.set(Calendar.DAY_OF_MONTH, day);
-                            calendarTemp.set(Calendar.HOUR_OF_DAY, hour);
+                                calendarTemp.set(Calendar.YEAR, year);
+                                calendarTemp.set(Calendar.MONTH, month - 1);
+                                calendarTemp.set(Calendar.DAY_OF_MONTH, day);
+                                calendarTemp.set(Calendar.HOUR_OF_DAY, hour);
 
-                            if (calendarTemp.getTimeInMillis() < calendar.getTimeInMillis()) {
-                                deleteDirectory(hourDir);
+                                if (calendarTemp.getTimeInMillis() < calendar.getTimeInMillis()) {
+                                    deleteDirectory(hourDir);
+                                }
                             }
                         }
                     }
@@ -173,46 +197,14 @@ public class FileBackupServer {
 
     //endregion
 
-    private long backupGroupFileStartMid;
-
-    private void startBackupGroupFile() {
-        backupGroupFileStartMid = MessageShardingUtil.getMsgIdFromTimestamp(System.currentTimeMillis());
-        new Thread(() -> {
-            long usedTime = 0;
-            while (true) {
-                if (DBUtil.SystemExiting) {
-                    break;
-                }
-                try {
-                    long sleepTime;
-                    if (DBUtil.ClearDBDebugMode) {
-                        sleepTime = 60 * 1000;
-                    } else {
-                        sleepTime = 60 * 60 * 1000 - usedTime;
-                    }
-                    if (sleepTime < 0) {
-                        sleepTime = 5 * 1000;
-                    }
-
-                    Thread.sleep(sleepTime);
-                    LOG.info("Start backup group file from messages");
-
-                    if (DBUtil.SystemExiting) {
-                        break;
-                    }
-                    long start = System.currentTimeMillis();
-                    backupGroupFile();
-                    usedTime = System.currentTimeMillis() - start;
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
-        }).start();
-    }
-
     private final Pattern patternFilePath = Pattern.compile("\\/fs\\/(\\d)\\/(\\d\\d\\d\\d)\\/(\\d\\d)\\/(\\d\\d)\\/(\\d\\d)\\/(.*)$");
 
+    /**
+     * 从im数据库查询群聊消息 包括图片视频语音文件四种
+     * 再判断本地文件是否存在 移动到backup目录下去
+     */
     private void backupGroupFile() {
+        LOG.info("Start backup group file from messages");
         Connection connection = null;
         PreparedStatement statement = null;
         ResultSet rs = null;
@@ -228,13 +220,13 @@ public class FileBackupServer {
             long endT = System.currentTimeMillis();
             Calendar endC = Calendar.getInstance();
             endC.setTimeInMillis(endT);
-            if (startC.get(Calendar.MONTH) != endC.get(Calendar.MONTH)){
+            if (startC.get(Calendar.MONTH) != endC.get(Calendar.MONTH)) {
                 // 分表是按月来的 避免跨表时 第二张表 部分消息查不到
-                endC.set(Calendar.DAY_OF_MONTH,0);
-                endC.set(Calendar.HOUR_OF_DAY,0);
-                endC.set(Calendar.MINUTE,0);
-                endC.set(Calendar.SECOND,0);
-                endC.set(Calendar.MILLISECOND,0);
+                endC.set(Calendar.DAY_OF_MONTH, 0);
+                endC.set(Calendar.HOUR_OF_DAY, 0);
+                endC.set(Calendar.MINUTE, 0);
+                endC.set(Calendar.SECOND, 0);
+                endC.set(Calendar.MILLISECOND, 0);
                 endT = endC.getTimeInMillis();
             }
             endMid = MessageShardingUtil.getMsgIdFromTimestamp(endT);
@@ -305,6 +297,6 @@ public class FileBackupServer {
 
 
     public void shutdown() {
-        clearFileExecutor.shutdown();
+        executorService.shutdown();
     }
 }
