@@ -1,5 +1,12 @@
 package com.xiaoleilu.loServer.handler;
 
+import com.aliyun.green20220302.Client;
+import com.aliyun.green20220302.models.*;
+import com.aliyun.oss.OSS;
+import com.aliyun.oss.OSSClientBuilder;
+import com.aliyun.oss.model.PutObjectRequest;
+import com.aliyun.teaopenapi.models.Config;
+import com.aliyun.teautil.models.RuntimeOptions;
 import com.hazelcast.util.StringUtil;
 import com.xiaoleilu.hutool.util.*;
 import com.xiaoleilu.loServer.ServerSetting;
@@ -17,6 +24,7 @@ import io.netty.handler.stream.ChunkedFile;
 import io.netty.util.CharsetUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import win.liyufan.im.GsonUtil;
 
 import java.io.*;
 import java.net.URLDecoder;
@@ -304,6 +312,22 @@ public class HttpFileServerHandler extends SimpleChannelInboundHandler<FullHttpR
 
             fileUpload.renameTo(tmpFile);
             decoder.removeHttpDataFromClean(fileUpload);
+
+            if (bucket == 5) {
+                // 头像违规检测
+                try {
+                    AliyunGreenImage.Level level = AliyunGreenImage.invokeFunction(tmpFile);
+                    if (level != AliyunGreenImage.Level.none) {
+                        FileUtil.copy(tmpFile, new File(MediaServerConfig.FileServerLocalDir + "/fs/weiguitouxiang/" + level.toString() + "/" + tmpFile.getName()), true);
+                        String weiguitouxiang = "/fs/static/avatar.png";
+                        writeResponseSuccess(ctx.channel(), "{\"key\":\"" + weiguitouxiang + "\"}");
+                        return;
+                    }
+                } catch (Exception e) {
+                    logger.error("头像监测失败", e);
+                }
+            }
+
             writeResponseSuccess(ctx.channel(), "{\"key\":\"" + relativePath + "\"}");
 
         } catch (HttpPostRequestDecoder.EndOfDataDecoderException e1) {
@@ -477,4 +501,290 @@ public class HttpFileServerHandler extends SimpleChannelInboundHandler<FullHttpR
         response.headers().set(HttpHeaderNames.CONTENT_TYPE, contentType == null ? "application/octet-stream" : contentType);
     }
 
+
+    public static class AliyunGreenImage {
+
+        //服务是否部署在vpc上
+        public static boolean isVPC = false;
+
+        //文件上传token endpoint->token
+        public static Map<String, Pair<DescribeUploadTokenResponseBody.DescribeUploadTokenResponseBodyData, OSS>> tokenMap;
+
+        public static Map<String, Client> clientMap;
+        public static String accessKeyId = "LTAI5tNVgo5QpHQEE8MPW13p";
+        public static String accessKeySecret = "3P6f7AdFMe1wDbWL4mUbbWHstx1KOr";
+
+        /**
+         * 创建请求客户端
+         *
+         * @param endpoint
+         * @return
+         * @throws Exception
+         */
+        private static Client getClient(String endpoint) throws Exception {
+            if (clientMap == null) {
+                clientMap = new HashMap<>();
+            }
+            Client client = clientMap.get(endpoint);
+            if (client == null) {
+                Config config = new Config();
+                config.setAccessKeyId(accessKeyId);
+                config.setAccessKeySecret(accessKeySecret);
+                // 设置http代理。
+                //config.setHttpProxy("http://10.10.xx.xx:xxxx");
+                // 设置https代理。
+                //config.setHttpsProxy("https://10.10.xx.xx:xxxx");
+                // 接入区域和地址请根据实际情况修改
+                // 接入地址列表：https://help.aliyun.com/document_detail/467828.html?#section-uib-qkw-0c8
+                config.setEndpoint(endpoint);
+                client = new Client(config);
+                clientMap.put(endpoint, client);
+            }
+            return client;
+        }
+
+        private static Pair<DescribeUploadTokenResponseBody.DescribeUploadTokenResponseBodyData, OSS> getOssTokenAndClient(String endpoint) throws Exception {
+            if (tokenMap == null) {
+                tokenMap = new HashMap<>();
+            }
+            Pair<DescribeUploadTokenResponseBody.DescribeUploadTokenResponseBodyData, OSS> pair = tokenMap.get(endpoint);
+            if (pair == null || pair.getKey().expiration <= System.currentTimeMillis() / 1000) {
+                Client client = getClient(endpoint);
+                DescribeUploadTokenResponse tokenResponse = client.describeUploadToken();
+                DescribeUploadTokenResponseBody.DescribeUploadTokenResponseBodyData tokenData = tokenResponse.getBody().getData();
+                OSS oss = null;
+                if (isVPC) {
+                    oss = new OSSClientBuilder().build(tokenData.ossInternalEndPoint, tokenData.getAccessKeyId(), tokenData.getAccessKeySecret(), tokenData.getSecurityToken());
+                } else {
+                    oss = new OSSClientBuilder().build(tokenData.ossInternetEndPoint, tokenData.getAccessKeyId(), tokenData.getAccessKeySecret(), tokenData.getSecurityToken());
+                }
+                pair = new Pair<>(tokenData, oss);
+                tokenMap.put(endpoint, pair);
+            }
+            return pair;
+        }
+
+        public static ImageModerationResponse invokeFunction(String endpoint,
+                                                             String imgUrl,
+                                                             File imgFile) throws Exception {
+            Client client = getClient(endpoint);
+
+            // 创建RuntimeObject实例并设置运行参数
+            RuntimeOptions runtime = new RuntimeOptions();
+            // 检测参数构造。
+            Map<String, String> serviceParameters = new HashMap<>();
+            // url方式
+            if (StrUtil.isNotBlank(imgUrl)) {
+                //公网可访问的URL。
+                serviceParameters.put("imageUrl", imgUrl);
+                //待检测数据唯一标识
+                serviceParameters.put("dataId", UUID.randomUUID().toString());
+            }
+            //本地文件模式
+            if (imgFile != null) {
+                //上传文件
+                //获取文件上传token
+                Pair<DescribeUploadTokenResponseBody.DescribeUploadTokenResponseBodyData, OSS> pair = getOssTokenAndClient(endpoint);
+                DescribeUploadTokenResponseBody.DescribeUploadTokenResponseBodyData tokenData = pair.getKey();
+
+                String objectName = uploadFile(tokenData, pair.getValue(), imgFile);
+                serviceParameters.put("ossBucketName", tokenData.getBucketName());
+                serviceParameters.put("ossObjectName", objectName);
+                serviceParameters.put("dataId", UUID.randomUUID().toString());
+            }
+
+            ImageModerationRequest request = new ImageModerationRequest();
+            // 图片检测service：内容安全控制台图片增强版规则配置的serviceCode，示例：baselineCheck
+            // 支持service请参考：https://help.aliyun.com/document_detail/467826.html?0#p-23b-o19-gff
+            request.setService("profilePhotoCheck");
+            request.setServiceParameters(GsonUtil.gson.toJson(serviceParameters));
+
+            ImageModerationResponse response = null;
+            try {
+                response = client.imageModerationWithOptions(request, runtime);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            return response;
+        }
+
+
+        /**
+         * 上传文件
+         *
+         * @param file
+         * @param tokenData
+         * @return
+         * @throws Exception
+         */
+        private static String uploadFile(DescribeUploadTokenResponseBody.DescribeUploadTokenResponseBodyData tokenData, OSS ossClient, File file) {
+            String[] split = file.getAbsolutePath().split("\\.");
+            String objectName;
+            if (split.length > 1) {
+                objectName = tokenData.getFileNamePrefix() + UUID.randomUUID() + "." + split[split.length - 1];
+            } else {
+                objectName = tokenData.getFileNamePrefix() + UUID.randomUUID();
+            }
+            PutObjectRequest putObjectRequest = new PutObjectRequest(tokenData.getBucketName(), objectName, file);
+            ossClient.putObject(putObjectRequest);
+            return objectName;
+        }
+
+
+        public static Level invokeFunction(File image) throws Exception {
+            /**
+             * 阿里云账号AccessKey拥有所有API的访问权限，建议您使用RAM用户进行API访问或日常运维。
+             * 常见获取环境变量方式：
+             * 方式一：
+             *     获取RAM用户AccessKey ID：System.getenv("ALIBABA_CLOUD_ACCESS_KEY_ID");
+             *     获取RAM用户AccessKey Secret：System.getenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET");
+             * 方式二：
+             *     获取RAM用户AccessKey ID：System.getProperty("ALIBABA_CLOUD_ACCESS_KEY_ID");
+             *     获取RAM用户AccessKey Secret：System.getProperty("ALIBABA_CLOUD_ACCESS_KEY_SECRET");
+             */
+            // 接入区域和地址请根据实际情况修改。
+            ImageModerationResponse response = invokeFunction("green-cip.cn-chengdu.aliyuncs.com", null, image);
+            try {
+                // 自动路由。
+                if (response != null) {
+                    //区域切换到cn-beijing。
+                    if (500 == response.getStatusCode() || (response.getBody() != null && 500 == (response.getBody().getCode()))) {
+                        // 接入区域和地址请根据实际情况修改。
+                        response = invokeFunction("green-cip.cn-beijing.aliyuncs.com", null, image);
+                    }
+                }
+                // 打印检测结果。
+                if (response != null) {
+                    if (response.getStatusCode() == 200) {
+                        ImageModerationResponseBody body = response.getBody();
+                        if (body.getCode() == 200) {
+                            ImageModerationResponseBody.ImageModerationResponseBodyData data = body.getData();
+                            logger.info("头像检测 data: {}", GsonUtil.gson.toJson(data));
+                            if (StrUtil.equals(data.getRiskLevel(), "high")) {
+                                return Level.high;
+                            }
+                            if (StrUtil.equals(data.getRiskLevel(), "medium")) {
+                                return Level.medium;
+                            }
+                            if (StrUtil.equals(data.getRiskLevel(), "low")) {
+                                return Level.low;
+                            }
+                        } else {
+                            logger.warn("头像检测 image moderation not success. code: {}", body.getCode());
+                        }
+                    } else {
+                        logger.warn("头像检测 response not success. status: {}", response.getStatusCode());
+                    }
+                }
+            } catch (Exception e) {
+                logger.error("头像检测 error.", e);
+            }
+            return Level.none;
+        }
+
+        public enum Level {
+            high, medium, low, none
+        }
+    }
+
+    public static class Pair<K, V> implements Serializable {
+
+        /**
+         * Key of this <code>Pair</code>.
+         */
+        private K key;
+
+        /**
+         * Gets the key for this pair.
+         *
+         * @return key for this pair
+         */
+        public K getKey() {
+            return key;
+        }
+
+        /**
+         * Value of this this <code>Pair</code>.
+         */
+        private V value;
+
+        /**
+         * Gets the value for this pair.
+         *
+         * @return value for this pair
+         */
+        public V getValue() {
+            return value;
+        }
+
+        /**
+         * Creates a new pair
+         *
+         * @param key   The key for this pair
+         * @param value The value to use for this pair
+         */
+        public Pair(K key, V value) {
+            this.key = key;
+            this.value = value;
+        }
+
+        /**
+         * <p><code>String</code> representation of this
+         * <code>Pair</code>.</p>
+         *
+         * <p>The default name/value delimiter '=' is always used.</p>
+         *
+         * @return <code>String</code> representation of this <code>Pair</code>
+         */
+        @Override
+        public String toString() {
+            return key + "=" + value;
+        }
+
+        /**
+         * <p>Generate a hash code for this <code>Pair</code>.</p>
+         *
+         * <p>The hash code is calculated using both the name and
+         * the value of the <code>Pair</code>.</p>
+         *
+         * @return hash code for this <code>Pair</code>
+         */
+        @Override
+        public int hashCode() {
+            // name's hashCode is multiplied by an arbitrary prime number (13)
+            // in order to make sure there is a difference in the hashCode between
+            // these two parameters:
+            //  name: a  value: aa
+            //  name: aa value: a
+            return key.hashCode() * 13 + (value == null ? 0 : value.hashCode());
+        }
+
+        /**
+         * <p>Test this <code>Pair</code> for equality with another
+         * <code>Object</code>.</p>
+         *
+         * <p>If the <code>Object</code> to be tested is not a
+         * <code>Pair</code> or is <code>null</code>, then this method
+         * returns <code>false</code>.</p>
+         *
+         * <p>Two <code>Pair</code>s are considered equal if and only if
+         * both the names and values are equal.</p>
+         *
+         * @param o the <code>Object</code> to test for
+         *          equality with this <code>Pair</code>
+         * @return <code>true</code> if the given <code>Object</code> is
+         * equal to this <code>Pair</code> else <code>false</code>
+         */
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o instanceof Pair) {
+                Pair pair = (Pair) o;
+                if (key != null ? !key.equals(pair.key) : pair.key != null) return false;
+                if (value != null ? !value.equals(pair.value) : pair.value != null) return false;
+                return true;
+            }
+            return false;
+        }
+    }
 }

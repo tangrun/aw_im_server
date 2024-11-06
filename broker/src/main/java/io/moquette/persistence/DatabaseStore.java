@@ -173,42 +173,44 @@ public class DatabaseStore {
 
         try {
             connection = DBUtil.getConnection();
-            String sql = "select `_uid`, `_name`" +
-                ", `_display_name`" +
-                ", `_portrait`" +
-                ", `_mobile`" +
-                ", `_gender`" +
-                ", `_email`" +
-                ", `_address`" +
-                ", `_company`" +
-                ", `_social`" +
-                ", `_extra`" +
-                ", `_dt` from t_user";
+            String sql = "select tu.`_uid`, tu.`_name`" +
+                ", tu.`_display_name`" +
+                ", tu.`_portrait`" +
+                ", tu.`_mobile`" +
+                ", tu.`_gender`" +
+                ", tu.`_email`" +
+                ", tu.`_address`" +
+                ", tu.`_company`" +
+                ", tu.`_social`" +
+                ", tu.`_extra`" +
+                ", tu.`_dt` from t_user tu";
+            sql += " left join t_user_status ts on tu.`_uid` = ts.`_uid`";
             switch (searchType) {
                 case SearchUserType_Name_Mobile:
-                    sql += " where (`_name` = ? or `_mobile` = ?) ";
+                    sql += " where (tu.`_name` = ? or tu.`_mobile` = ?) ";
                     break;
                 case SearchUserType_Name:
-                    sql += " where `_name` = ? ";
+                    sql += " where tu.`_name` = ? ";
                     break;
                 case SearchUserType_Mobile:
-                    sql += " where `_mobile` = ? ";
+                    sql += " where tu.`_mobile` = ? ";
                     break;
                 case SearchUserType_General:
                 default:
-                    sql += " where (`_display_name` like ? or `_name` = ? or `_mobile` = ?) ";
+                    sql += " where (tu.`_display_name` like ? or tu.`_name` = ? or tu.`_mobile` = ?) ";
                     break;
             }
 
 
-            sql += " and _type <> 2"; //can search normal user(0) and robot(1) and admin(100), can not search things
+            sql += " and tu.`_type` <> 2"; //can search normal user(0) and robot(1) and admin(100), can not search things
+            sql += " and ts.`_uid` is null";
 
             if (searchType == SearchUserType_Name_Mobile || searchType == SearchUserType_Name || searchType == SearchUserType_Mobile) {
                 sql += " limit 1";
             } else {
                 sql += " limit 20";
             }
-            
+
             if (page > 0) {
                 sql += " offset " + page * 20;
             }
@@ -2288,7 +2290,7 @@ public class DatabaseStore {
             }
         });
     }
-    
+
     boolean isUidAndNameConflict(String uid, String name) {
         Connection connection = null;
         PreparedStatement statement = null;
